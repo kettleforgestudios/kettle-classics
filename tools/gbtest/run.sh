@@ -29,19 +29,42 @@ rom="$root/pocket/kernel-drop/kernel-drop.gb"
   "expect:200:C000:42"  "expect:200:C005:00" \
   "shot:200:$out/kernel-drop-title.ppm" \
   "press:210:A:3"       "expectnot:213:C004:00" \
-  "press:240:T:1"       "expect:245:C005:01" \
+  "press:240:T:2"       "expect:245:C005:01" \
   "press:250:R:30"      "expectnot:285:C006:48" \
   "press:300:A:2"       "expectnot:303:C00D:00" \
   "shot:306:$out/kernel-drop-rain.ppm" \
   "press:310:U:20"      "expectnot:335:C007:20" \
   "press:340:B:60"      "expectnot:395:C00C:00" \
   "shot:380:$out/kernel-drop-pour.ppm" \
-  "press:420:S:1"       "expect:425:C009:01" \
-  "press:440:T:1"       "expect:445:C008:01" \
+  "press:420:S:2"       "expect:425:C009:01" \
+  "press:440:T:2"       "expect:445:C008:01" \
   "shot:450:$out/kernel-drop-pause.ppm" \
-  "press:460:T:1"       "expect:465:C008:00"
+  "press:460:T:2"       "expect:465:C008:00"
 
-for name in title rain pour pause; do
+# --- Seeds (step 3) ---
+#   C020 + 8*n = seed n (state, water, grow, dry, soggy). Seed 3 is under the cloud's start.
+#   C038 seed 3 state (0 growing, 1 sprouted, 2 wilted, 3 flooded), C039 seed 3 water
+#   C050 round over, C051 seeds sprouted
+# Run 2: water seed 3 just right until it sprouts; the others dry out and wilt.
+water_presses=""
+for f in 250 260 270 280 290 350 410 470 530 590; do water_presses="$water_presses press:$f:A:2"; done
+"$out/gbtest" "$out/dmg_boot.bin" "$rom" 900 \
+  "press:200:T:2" $water_presses \
+  "expectnot:248:C039:10" \
+  "press:400:S:2" "shot:500:$out/kernel-drop-seeds.ppm" \
+  "expect:700:C038:01" \
+  "expect:820:C050:01" "expect:820:C051:01" "expect:820:C020:02" \
+  "shot:820:$out/kernel-drop-result.ppm" \
+  "press:840:T:2" "expect:845:C050:00" "expect:845:C038:00"
+
+# Run 3: pour too much on seed 3 until it floods.
+"$out/gbtest" "$out/dmg_boot.bin" "$rom" 700 \
+  "press:200:T:2" \
+  "press:220:D:30" \
+  "press:260:B:40" "press:320:B:40" "press:380:B:40" "press:440:B:40" \
+  "expect:600:C038:03" "shot:600:$out/kernel-drop-flooded.ppm"
+
+for name in title rain pour pause seeds result flooded; do
   python3 "$here/ppm2png.py" "$out/kernel-drop-$name.ppm" "$out/kernel-drop-$name.png" 3
 done
 echo "Screenshots: $out/*.png"

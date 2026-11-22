@@ -2,12 +2,18 @@
 ; Kernel Drop - Chapter 1 of Kettle Classics (Pocket / Game Boy)
 ; (c) 2026 Kettle Forge Studios. Original code, art and sound.
 ;
+; Step 3: seeds.
+;   Six seeds sit on the soil, each with a thirst gauge above it. The soil
+;   slowly dries them out. Keep a seed's water in its "just right" zone (the
+;   ticks on its gauge) long enough and it SPROUTS. Too dry for too long and it
+;   WILTS; too wet for too long and it FLOODS. When every seed is done, you get
+;   a result; press Start to play again.
 ; Step 2: the rain cloud.
 ;   Title screen: Kip bobs, A = hop, Start = play.
 ;   Play screen:  D-pad left/right moves the cloud, up/down raises/lowers it
 ;                 (higher = drops scatter more). A = one drop. Hold B = pour.
 ;                 After a long pour the cloud is tired for a moment (turns pale).
-;                 Start = pause. Select = moisture view on/off (used in step 3).
+;                 Start = pause. Select = moisture view (exact water numbers).
 ;
 ; Real Game Boy rules we follow:
 ;   - Video memory is only changed while the screen is off, or right after the
@@ -39,6 +45,39 @@ DEF POUR_EVERY  EQU 4      ; while pouring (B), one drop every 4 frames
 DEF POUR_LIMIT  EQU 48     ; pour this many frames in a row...
 DEF TIRED_TIME  EQU 90     ; ...and the cloud rests this long (1.5 seconds)
 
+; --- Seeds --------------------------------------------------------------------
+DEF NUM_SEEDS   EQU 6
+DEF SEED_SIZE   EQU 8      ; bytes per seed in wSeeds (see below)
+DEF SEED_COL0   EQU 1      ; first seed at background column 1 (x = 8)...
+DEF SEED_COL_STEP EQU 3    ; ...then every 3 columns (24 pixels)
+DEF PLOT_WIDTH  EQU 16     ; a drop landing within 16 pixels of a seed counts
+DEF SEED_ROW    EQU SOIL_ROW - 1   ; seeds sit just above the soil
+DEF GAUGE_ROW   EQU SOIL_ROW - 2   ; thirst gauges above the seeds
+DEF NUMBER_ROW  EQU SOIL_ROW - 3   ; moisture numbers above the gauges
+DEF WATER_MAX   EQU 63     ; water level 0-63 (the gauge shows water / 8)
+DEF WATER_START EQU 16     ; seeds start a little dry
+DEF DROP_WATER  EQU 4      ; each drop adds this much
+DEF DRY_EVERY   EQU 20     ; soil loses 1 water every 20 frames (3 per second)
+DEF ZONE_LOW    EQU 24     ; "just right" zone for a normal kernel...
+DEF ZONE_HIGH   EQU 47     ; ...(gauge levels 3-5, the ticks)
+DEF GROW_TIME   EQU 240    ; frames in the zone to sprout (4 seconds)
+DEF WILT_TIME   EQU 180    ; frames at zero water before wilting (3 seconds)
+DEF FLOOD_TIME  EQU 150    ; frames above the zone before flooding (2.5 s)
+DEF GOOD_RESULT EQU 4      ; sprout at least 4 of 6 to clear the stage
+
+; Seed states
+DEF SEED_GROWING  EQU 0
+DEF SEED_SPROUTED EQU 1
+DEF SEED_WILTED   EQU 2
+DEF SEED_FLOODED  EQU 3
+
+; Offsets inside one seed's 8 bytes
+DEF S_STATE  EQU 0
+DEF S_WATER  EQU 1
+DEF S_GROW   EQU 2         ; frames spent in the zone
+DEF S_DRY    EQU 3         ; frames spent at zero water
+DEF S_SOGGY  EQU 4         ; frames spent above the zone
+
 ; Game states
 DEF STATE_TITLE EQU 0
 DEF STATE_PLAY  EQU 1
@@ -66,8 +105,16 @@ wPourTimer::   db  ; $C00B: how long B has been held (while pouring)
 wTiredTimer::  db  ; $C00C: > 0 while the cloud rests after a long pour
 wActiveDrops:: db  ; $C00D: how many drops are in the air (tests read this)
 wRandom::      db  ; $C00E: random number seed
-wPauseDirty::  db  ; $C00F: 1 = pause text needs (un)drawing next VBlank
+wMsgDirty::    db  ; $C00F: 1 = the message line needs redrawing next VBlank
 wDrops::       ds MAX_DROPS * 2  ; $C010: each drop = Y, X (Y = 0 means unused)
+wSeeds::       ds NUM_SEEDS * SEED_SIZE ; $C020: 6 seeds x 8 bytes
+wGameOver::    db  ; $C050: 1 = every seed is done (result showing)
+wSprouted::    db  ; $C051: how many seeds sprouted
+wDryTick::     db  ; $C052: counts frames until the soil dries a little more
+wMsgPtr::      dw  ; $C053: which text the message line shows
+wBgDirty::     db  ; $C055: 1 = seed tiles need copying next VBlank
+; Tiles waiting to be copied to the screen at the next VBlank, per seed:
+wSeedTiles::   ds NUM_SEEDS * 4 ; $C056: tens digit, ones digit, gauge, seed
 wStateEnd::
 
 ; A copy of the sprite table. We edit it any time; the VBlank interrupt copies
@@ -159,9 +206,12 @@ MainLoop:
     halt                    ; sleep until the next VBlank interrupt
 
     ; --- VBlank jobs (must be quick) ---
-    ld a, [wPauseDirty]
+    ld a, [wBgDirty]
     and a
-    call nz, DrawPauseText
+    call nz, CopySeedTiles
+    ld a, [wMsgDirty]
+    and a
+    call nz, DrawMessage
 
     ; --- Game logic ---
     call ReadJoypad
@@ -236,15 +286,52 @@ StartGame:
     ld [wTiredTimer], a
     ld [wDropDelay], a
     ld [wActiveDrops], a
+    ld [wGameOver], a
+    ld [wSprouted], a
+    ld [wDryTick], a
     ld hl, wDrops
     ld bc, MAX_DROPS * 2
     call MemFill
+    call ResetSeeds
+    ld de, TextBlank12
+    call SetMessage
+    call DrawMessage        ; screen is off, so we can draw right away
+    call BuildSeedTiles
+    call CopySeedTiles
     jp ScreenOn
+
+; ResetSeeds: every seed starts growing, a little dry.
+ResetSeeds:
+    ld hl, wSeeds
+    ld b, NUM_SEEDS
+.seed
+    ld a, SEED_GROWING
+    ld [hli], a             ; S_STATE
+    ld a, WATER_START
+    ld [hli], a             ; S_WATER
+    xor a
+    ld c, SEED_SIZE - 2
+.zero
+    ld [hli], a             ; timers
+    dec c
+    jr nz, .zero
+    dec b
+    jr nz, .seed
+    ret
 
 ; =============================================================================
 ; Play screen
 ; =============================================================================
 UpdatePlay:
+    ; Round over: Start plays again.
+    ld a, [wGameOver]
+    and a
+    jr z, .playing
+    ld a, [wJoyPressed]
+    bit PADB_START, a
+    jp nz, StartGame
+    ret
+.playing
     ; Start: pause / unpause (the text is drawn at the next VBlank).
     ld a, [wJoyPressed]
     bit PADB_START, a
@@ -252,8 +339,11 @@ UpdatePlay:
     ld a, [wPaused]
     xor 1
     ld [wPaused], a
-    ld a, 1
-    ld [wPauseDirty], a
+    ld de, TextPause
+    jr nz, .showPause
+    ld de, TextBlank12
+.showPause
+    call SetMessage
 .noPause
     ld a, [wPaused]
     and a
@@ -270,6 +360,8 @@ UpdatePlay:
     call MoveCloud
     call MakeRain
     call MoveDrops
+    call UpdateSeeds
+    call BuildSeedTiles
     jp DrawPlaySprites
 
 ; MoveCloud: D-pad moves the cloud one pixel per frame, inside the limits.
@@ -415,8 +507,15 @@ MoveDrops:
     add a, DROP_SPEED
     cp SOIL_Y - 4
     jr c, .stillFalling
-    xor a                   ; hit the soil: gone (seeds will drink it in step 3)
+    xor a                   ; hit the soil: the drop is gone...
     ld [hl], a
+    push hl
+    push bc
+    inc hl
+    ld a, [hl]              ; ...and whatever seed is under it drinks
+    call WaterAt
+    pop bc
+    pop hl
     jr .next
 .stillFalling
     ld [hl], a
@@ -479,20 +578,315 @@ DrawPlaySprites:
     jr nz, .drop
     ret
 
-; DrawPauseText: write or erase "PAUSE" in the middle of the screen.
-; Called right after VBlank starts, when video memory is safe to touch.
-DEF PAUSE_POS EQU SCRN0 + SCRN_VY * 7 + 7
-DrawPauseText:
+; SetMessage: show text de on the message line (drawn at the next VBlank).
+SetMessage:
+    ld a, e
+    ld [wMsgPtr], a
+    ld a, d
+    ld [wMsgPtr + 1], a
+    ld a, 1
+    ld [wMsgDirty], a
+    ret
+
+; DrawMessage: write the message line (12 letters) in the middle of the screen.
+; Only called when video memory is safe: right after VBlank or screen off.
+DEF MSG_POS EQU SCRN0 + SCRN_VY * 7 + 4
+DrawMessage:
     xor a
-    ld [wPauseDirty], a
-    ld hl, PAUSE_POS
-    ld a, [wPaused]
-    and a
-    ld de, TextPause
-    jr nz, .write
-    ld de, TextBlank5
-.write
+    ld [wMsgDirty], a
+    ld a, [wMsgPtr]
+    ld e, a
+    ld a, [wMsgPtr + 1]
+    ld d, a
+    ld hl, MSG_POS
     jp PrintText
+
+; =============================================================================
+; Seeds
+; =============================================================================
+
+; WaterAt: a drop landed with its left edge at x = a. If it's over a seed
+; that is still growing, that seed gets DROP_WATER more water.
+;   Seed i sits at x = 8 + 24*i; its plot is the 16 pixels from x-4 to x+12.
+WaterAt:
+    add a, 4                ; drop centre is 4 pixels right of its left edge
+    sub 4                   ; ...measure from the first plot's left edge (x = 4)
+    ret c                   ; left of the first plot
+    ld c, 0                 ; c = which seed
+.divide                     ; a / 24, counting in c, remainder in a
+    cp 24
+    jr c, .gotPlot
+    sub 24
+    inc c
+    jr .divide
+.gotPlot
+    cp PLOT_WIDTH
+    ret nc                  ; landed between plots
+    ld a, c
+    cp NUM_SEEDS
+    ret nc                  ; right of the last plot
+    call SeedAddress        ; hl = this seed
+    ld a, [hl]
+    cp SEED_GROWING
+    ret nz                  ; already sprouted/wilted/flooded: no effect
+    inc hl                  ; S_WATER
+    ld a, [hl]
+    add a, DROP_WATER
+    cp WATER_MAX + 1
+    jr c, .store
+    ld a, WATER_MAX
+.store
+    ld [hl], a
+    ret
+
+; SeedAddress: hl = wSeeds + c * 8.
+SeedAddress:
+    ld a, c
+    add a, a
+    add a, a
+    add a, a                ; c * 8
+    ld hl, wSeeds
+    add a, l
+    ld l, a
+    ret nc
+    inc h
+    ret
+
+; UpdateSeeds: drying, growing, wilting and flooding, once per frame.
+UpdateSeeds:
+    ; Is it time for the soil to dry a little?
+    ld hl, wDryTick
+    inc [hl]
+    ld a, [hl]
+    cp DRY_EVERY
+    ld e, 0                 ; e = 1 if seeds lose water this frame
+    jr c, .noDry
+    xor a
+    ld [hl], a
+    ld e, 1
+.noDry
+    ld hl, wSeeds
+    ld b, NUM_SEEDS
+    ld d, 0                 ; d = how many seeds are done (not growing)
+.seed
+    push hl
+    ld a, [hl]              ; S_STATE
+    cp SEED_GROWING
+    jr z, .growing
+    inc d
+    jr .next
+.growing
+    inc hl                  ; S_WATER
+    ld a, e
+    and a
+    jr z, .wet
+    ld a, [hl]
+    and a
+    jr z, .wet
+    dec [hl]                ; soil dried a little
+.wet
+    ld a, [hl]              ; a = water
+    ld c, a
+    inc hl                  ; S_GROW
+    ; --- Too dry? (water = 0) ---
+    and a
+    jr nz, .notDry
+    inc hl                  ; S_DRY
+    inc [hl]
+    ld a, [hl]
+    cp WILT_TIME
+    jr c, .next
+    ld a, SEED_WILTED
+    jr .setState
+.notDry
+    inc hl                  ; S_DRY
+    ld [hl], 0              ; any water resets the dry timer
+    dec hl                  ; back to S_GROW
+    ; --- Too wet? (above the zone) ---
+    ld a, c
+    cp ZONE_HIGH + 1
+    jr c, .notSoggy
+    inc hl
+    inc hl                  ; S_SOGGY
+    inc [hl]
+    ld a, [hl]
+    cp FLOOD_TIME
+    jr c, .next
+    ld a, SEED_FLOODED
+    jr .setState
+.notSoggy
+    push hl
+    inc hl
+    inc hl                  ; S_SOGGY
+    ld [hl], 0
+    pop hl                  ; back to S_GROW
+    ; --- Just right? (inside the zone) ---
+    ld a, c
+    cp ZONE_LOW
+    jr c, .next             ; a bit dry, but not dying: nothing happens
+    inc [hl]                ; S_GROW
+    ld a, [hl]
+    cp GROW_TIME
+    jr c, .next
+    ld a, [wSprouted]
+    inc a
+    ld [wSprouted], a
+    ld a, SEED_SPROUTED
+.setState
+    pop hl
+    ld [hl], a              ; S_STATE
+    push hl
+    inc d
+.next
+    pop hl
+    ld a, l
+    add a, SEED_SIZE
+    ld l, a
+    jr nc, .noCarry
+    inc h
+.noCarry
+    dec b
+    jr nz, .seed
+
+    ; Every seed done? Show the result.
+    ld a, d
+    cp NUM_SEEDS
+    ret nz
+    ld a, 1
+    ld [wGameOver], a
+    ld a, [wSprouted]
+    cp NUM_SEEDS
+    ld de, TextAllSprouted
+    jr z, .result
+    cp GOOD_RESULT
+    ld de, TextStageClear
+    jr nc, .result
+    ld de, TextTryAgain
+.result
+    jp SetMessage
+
+; BuildSeedTiles: work out which tiles each seed needs (number, gauge, seed
+; picture) and mark them for copying at the next VBlank.
+BuildSeedTiles:
+    ld hl, wSeeds
+    ld de, wSeedTiles
+    ld b, NUM_SEEDS
+.seed
+    ld a, [hli]             ; S_STATE
+    ld c, a
+    ld a, [hl]              ; S_WATER
+    push hl
+    push bc
+    ld h, a                 ; h = water (kept for the gauge)
+    ; Moisture numbers (only in moisture view, and only while growing).
+    ld a, [wMoistureView]
+    and a
+    jr z, .noNumber
+    ld a, c
+    cp SEED_GROWING
+    jr nz, .noNumber
+    ld a, h
+    ld l, 0                 ; l = tens
+.tens
+    cp 10
+    jr c, .gotTens
+    sub 10
+    inc l
+    jr .tens
+.gotTens
+    ld b, a                 ; b = ones
+    ld a, l
+    add a, TILE_DIGIT0
+    ld [de], a
+    inc de
+    ld a, b
+    add a, TILE_DIGIT0
+    ld [de], a
+    inc de
+    jr .gauge
+.noNumber
+    xor a
+    ld [de], a
+    inc de
+    ld [de], a
+    inc de
+.gauge
+    ; Gauge: water / 8 = level 0-7 (blank once the seed is done).
+    ld a, c
+    cp SEED_GROWING
+    ld a, 0
+    jr nz, .storeGauge
+    ld a, h
+    srl a
+    srl a
+    srl a
+    add a, TILE_GAUGE
+.storeGauge
+    ld [de], a
+    inc de
+    ; Seed picture: one tile per state (seed, sprout, wilted, flooded).
+    ld a, c
+    add a, TILE_SEED
+    ld [de], a
+    inc de
+    pop bc
+    pop hl
+    ld a, l
+    add a, SEED_SIZE - 1    ; hl was already one past S_STATE
+    ld l, a
+    jr nc, .noCarry
+    inc h
+.noCarry
+    dec b
+    jr nz, .seed
+    ld a, 1
+    ld [wBgDirty], a
+    ret
+
+; CopySeedTiles: copy wSeedTiles onto the screen (rows NUMBER, GAUGE, SEED).
+; Only called when video memory is safe: right after VBlank or screen off.
+CopySeedTiles:
+    xor a
+    ld [wBgDirty], a
+    ld de, wSeedTiles
+    ld hl, SCRN0 + SCRN_VY * NUMBER_ROW + SEED_COL0
+    ld b, NUM_SEEDS
+.seed
+    push hl
+    ld a, [de]              ; tens digit
+    inc de
+    ld [hli], a
+    ld a, [de]              ; ones digit
+    inc de
+    ld [hl], a
+    ld a, l
+    add a, SCRN_VY - 1      ; down one row, back one column
+    ld l, a
+    jr nc, .c1
+    inc h
+.c1
+    ld a, [de]              ; gauge
+    inc de
+    ld [hl], a
+    ld a, l
+    add a, SCRN_VY          ; down one row
+    ld l, a
+    jr nc, .c2
+    inc h
+.c2
+    ld a, [de]              ; seed picture
+    inc de
+    ld [hl], a
+    pop hl
+    ld a, l
+    add a, SEED_COL_STEP    ; next seed's column
+    ld l, a
+    jr nc, .c3
+    inc h
+.c3
+    dec b
+    jr nz, .seed
+    ret
 
 ; =============================================================================
 ; Screens (drawn while the screen is off)
@@ -711,5 +1105,9 @@ PrintText:
 TextTitle:      db "KERNEL DROP", $FF
 TextSeries:     db "KETTLE CLASSICS", $FF
 TextPressStart: db "PRESS START", $FF
-TextPause:      db "PAUSE", $FF
-TextBlank5:     db "     ", $FF
+; Message line texts are 12 characters so they fully replace each other.
+TextPause:       db "   PAUSE    ", $FF
+TextBlank12:     db "            ", $FF
+TextAllSprouted: db "ALL SPROUTED", $FF
+TextStageClear:  db "STAGE CLEAR ", $FF
+TextTryAgain:    db " TRY AGAIN  ", $FF
