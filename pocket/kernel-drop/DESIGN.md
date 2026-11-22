@@ -4,12 +4,32 @@ Original Kettle Forge Studios game for the **Pocket** (Game Boy) system. Chapter
 kernel's journey (seed → field → harvest → silo → kettle → POP). Working titles and names
 are placeholders.
 
-Status: build steps 1-4 done, Nov 22 2026. Playable round: six seeds with thirst gauges,
-soil drying, sprout / wilt / flood, moisture numbers (Select), result message, Start to
-replay. Tuning (first pass): water 0-63, start 16, drop +4, dries 1 per 20 frames, zone
-24-47 for 4 s sprouts, 3 s at zero wilts, 2.5 s above zone floods, 4 of 6 clears.
-Step 5 (sound effects) done: start chirp, pause blip, tired "phew", wilt droop,
-splash and flood noise, sprout tune, win / lose tunes. Music still to come.
+Status (Nov 22 2026): **complete (version 1.0 candidate)**. Build steps 1-7 are done; step 8
+(polish) has had a first pass; bundling into Kernelcade is the last step.
+What's in:
+- **Story mode:** 6 stages. 1 First Rain (6 normal seeds), 2 Sunny Day (sun, thirsty seeds),
+  3 Windy (wind, delicate seeds), 4 Crows, 5 Puddles (+ sun), 6 Kip Seed (sun + wind +
+  crows, Kip's seed must sprout). Each stage shows its name and a hint for 2 s (Start skips).
+  Clear = 4 of 6 sprouted (and Kip's seed on stage 6); a failed stage is retried.
+  The ending shows Kip sprouting, the Chapter 2 code and the score.
+- **Endless mode:** random seed types; twists unlock over stages 2-5, then mix randomly;
+  the soil dries faster each stage. Game over keeps the high score (until power off).
+- **Seed types:** normal (zone 24-47), thirsty (32-55, dries twice as fast), delicate (16-31,
+  floods in 1.5 s), Kip (24-39). Each type has its own picture and gauge ticks.
+- **Twists:** sun (out 5 s / away 5 s, soil dries twice as fast; sun shows top-right),
+  wind (pushes drops 1 px every 4 frames, turns every 4 s; arrows top-left),
+  crows (fly in below the cloud, land on a seed and steal it after 2.5 s of pecking; a drop
+  scares them off; never Kip's seed), puddles (watering a seed that's above its zone spills 2
+  water onto each neighbour).
+- **Score bar:** stage and score. 10 points per sprout, 50 bonus for all six.
+- **Music:** title "Morning Field", play "Light Rain", ending "Sprouted" on the wave channel;
+  Kip's motif when Kip's seed sprouts; the POP jingle on the ending.
+- **Lab mode:** hold Select + press Start on the title. Pages (Select + Start = next): button
+  test, sound test (channels 1-4 + Kip's motif), sprites and layers (11 drops on one line:
+  only 10 may show; window layer on/off; background scroll), timer (frames, seconds, DIV).
+- **Hardware care:** screen jobs check there's enough VBlank left before writing video memory;
+  the wave channel is switched off before writing wave memory or starting a note.
+Placeholders for the owner to decide: game title, "Kip", the Chapter 2 code ("SILK-KIP-2").
 Home: `kettleforgestudios/kettle-classics`, folder `pocket/kernel-drop/`. The built game
 is copied into Kernelcade as a bundled original game (allowed by Kernelcade's ROM rule).
 
@@ -41,6 +61,8 @@ Genre: arcade timing / juggling game. Session: a polished 5-10 minute micro-game
 | Thirsty seed | lots of water | drains fast |
 | Delicate seed | a little water | floods easily |
 | Kip (story seed) | exact amount | final stage of Story mode |
+
+The final stage's Kip seed is the middle-right plot (seed 4 of 6, under the cloud's start).
 
 ## Stage twists (added gradually)
 
@@ -102,16 +124,19 @@ Genre: arcade timing / juggling game. Session: a polished 5-10 minute micro-game
 2. ~~Title screen and Kip sprite.~~ Done.
 3. ~~Cloud movement (D-pad, height) and water drops (A / B).~~ Done.
 4. ~~Seeds with thirst meters, drying, sprout / wilt / flood rules.~~ Done.
-5. Sound effects (~~done~~) and music.
-6. Stages and twists (sun, wind, crows, puddles), Story and Endless modes.
-7. Lab mode.
-8. Polish, then bundle into Kernelcade as the built-in Pocket game.
+5. ~~Sound effects and music.~~ Done.
+6. ~~Stages and twists (sun, wind, crows, puddles), Story and Endless modes.~~ Done.
+7. ~~Lab mode.~~ Done.
+8. Polish (first pass done: play-test on the Nova for difficulty), then bundle into
+   Kernelcade as the built-in Pocket game.
 
 ## Open questions
 
 - ~~Assembly or C?~~ Assembly (RGBDS).
 - ~~Cloud water?~~ Unlimited with a short cooldown (keep the first game relaxing).
 - Final names: game title, mascot ("Kip" is a placeholder).
+- Chapter 2 unlock code (placeholder "SILK-KIP-2") and how Kernelcade checks it.
+- High scores that survive power-off (needs a cartridge with battery RAM).
 - Shared-repo name.
 
 ## Shared across all the original games (owner, Nov 22 2026)

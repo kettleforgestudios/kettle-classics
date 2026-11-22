@@ -2,39 +2,45 @@
 ; Kernel Drop - Chapter 1 of Kettle Classics (Pocket / Game Boy)
 ; (c) 2026 Kettle Forge Studios. Original code, art and sound.
 ;
-; Step 5: sound effects. Events queue a sound (QUEUE_SFX); once per frame
-;   UpdateSound plays whatever was queued and steps through any short tune.
-; Step 3: seeds.
-;   Six seeds sit on the soil, each with a thirst gauge above it. The soil
-;   slowly dries them out. Keep a seed's water in its "just right" zone (the
-;   ticks on its gauge) long enough and it SPROUTS. Too dry for too long and it
-;   WILTS; too wet for too long and it FLOODS. When every seed is done, you get
-;   a result; press Start to play again.
-; Step 2: the rain cloud.
-;   Title screen: Kip bobs, A = hop, Start = play.
-;   Play screen:  D-pad left/right moves the cloud, up/down raises/lowers it
-;                 (higher = drops scatter more). A = one drop. Hold B = pour.
-;                 After a long pour the cloud is tired for a moment (turns pale).
-;                 Start = pause. Select = moisture view (exact water numbers).
+; Steer a rain cloud and water a row of seeds just right: too dry and they
+; wilt, too wet and they flood. Story mode has six stages that add the sun,
+; wind, crows and puddles, and ends with Kip (our kernel) sprouting. Endless
+; mode keeps going for a high score. A hidden Lab mode tests the hardware.
+;
+; The game is split into files that are all pulled into this one with INCLUDE
+; (so they share every name and constant):
+;   main.asm   start-up, memory map, main loop, screen jobs, helpers, texts
+;   title.asm  title screen with the mode menu, and the ending
+;   play.asm   the game itself: stages, cloud, rain, seeds and the twists
+;   sound.asm  sound effects, short tunes and the background music player
+;   lab.asm    the hidden Lab mode (button, sound, sprite/layer, timer tests)
 ;
 ; Real Game Boy rules we follow:
-;   - Video memory is only changed while the screen is off, or right after the
-;     VBlank interrupt (the short break between frames).
+;   - Video memory is only changed while the screen is off, or during VBlank
+;     (the short break between frames). Each VBlank job first checks that
+;     enough of the break is left; if not, it simply waits for the next frame.
 ;   - Sprites are moved with OAM DMA from a copy in work RAM.
+;   - No more than 10 sprites on one screen line: the crow flies below the
+;     cloud, so cloud + crow never share a line (drops 8 + crow 2 = 10).
+;   - The wave channel is switched off before its wave memory is written or a
+;     new note is started (the original handheld can scramble it otherwise).
 ; =============================================================================
 
 INCLUDE "hardware.inc"
 INCLUDE "charmap.inc"
+INCLUDE "notes.inc"
 
 ; --- Title screen -------------------------------------------------------------
 DEF KIP_X       EQU 72     ; Kip's position on the title screen (pixels)
-DEF KIP_Y       EQU 88
+DEF KIP_Y       EQU 64
 DEF HOP_HEIGHT  EQU 12     ; how many pixels a hop lifts Kip
+DEF MENU_ROW    EQU 11     ; "STORY" is on this row, "ENDLESS" on the next
+DEF MENU_COL    EQU 6      ; column of the menu arrow
 
 ; --- Play screen --------------------------------------------------------------
 DEF CLOUD_MIN_X EQU 0      ; cloud can move from the left edge...
 DEF CLOUD_MAX_X EQU 144    ; ...to the right edge (screen 160 - cloud 16)
-DEF CLOUD_TOP   EQU 16     ; highest the cloud can go (smallest Y)
+DEF CLOUD_TOP   EQU 16     ; highest the cloud can go (rows 0-1 are the score bar)
 DEF CLOUD_LOW   EQU 56     ; lowest the cloud can go
 DEF CLOUD_START_X EQU 72
 DEF CLOUD_START_Y EQU 32
@@ -46,6 +52,7 @@ DEF A_DELAY     EQU 8      ; frames between single drops (A)
 DEF POUR_EVERY  EQU 4      ; while pouring (B), one drop every 4 frames
 DEF POUR_LIMIT  EQU 48     ; pour this many frames in a row...
 DEF TIRED_TIME  EQU 90     ; ...and the cloud rests this long (1.5 seconds)
+DEF INTRO_TIME  EQU 120    ; the stage name shows for 2 seconds before play
 
 ; --- Seeds --------------------------------------------------------------------
 DEF NUM_SEEDS   EQU 6
@@ -59,41 +66,24 @@ DEF NUMBER_ROW  EQU SOIL_ROW - 3   ; moisture numbers above the gauges
 DEF WATER_MAX   EQU 63     ; water level 0-63 (the gauge shows water / 8)
 DEF WATER_START EQU 16     ; seeds start a little dry
 DEF DROP_WATER  EQU 4      ; each drop adds this much
-DEF DRY_EVERY   EQU 20     ; soil loses 1 water every 20 frames (3 per second)
-DEF ZONE_LOW    EQU 24     ; "just right" zone for a normal kernel...
-DEF ZONE_HIGH   EQU 47     ; ...(gauge levels 3-5, the ticks)
+DEF SPILL_WATER EQU 2      ; puddles: water that spills onto each neighbour
 DEF GROW_TIME   EQU 240    ; frames in the zone to sprout (4 seconds)
 DEF WILT_TIME   EQU 180    ; frames at zero water before wilting (3 seconds)
-DEF FLOOD_TIME  EQU 150    ; frames above the zone before flooding (2.5 s)
 DEF GOOD_RESULT EQU 4      ; sprout at least 4 of 6 to clear the stage
+; Each seed type's "just right" zone and flood time is in SeedTypes (play.asm).
 
-; --- Sound effects --------------------------------------------------------------
-; Each event sets one bit in wSfxQueue. Several can happen in one frame; they
-; are all played at the end of the frame (see UpdateSound).
-DEF SFXB_START  EQU 0      ; game starts       (channel 1: rising chirp)
-DEF SFXB_PAUSE  EQU 1      ; pause / unpause   (channel 1: blip)
-DEF SFXB_TIRED  EQU 2      ; cloud gets tired  (channel 1: falling "phew")
-DEF SFXB_WILT   EQU 3      ; a seed wilts      (channel 1: low droop)
-DEF SFXB_SPLASH EQU 4      ; drop waters a seed (channel 4: soft noise)
-DEF SFXB_FLOOD  EQU 5      ; a seed floods     (channel 4: long splash)
-DEF SFXB_SPROUT EQU 6      ; a seed sprouts    (channel 2: 3-note tune)
-DEF SFXB_RESULT EQU 7      ; round over        (channel 2: happy or sad tune)
+; Seed types
+DEF TYPE_NORMAL   EQU 0
+DEF TYPE_THIRSTY  EQU 1    ; needs more water and drinks it twice as fast
+DEF TYPE_DELICATE EQU 2    ; needs only a little, floods quickly
+DEF TYPE_KIP      EQU 3    ; Kip's own seed: a narrow zone (final stage)
 
-; QUEUE_SFX SFXB_xxx: ask for a sound. Keeps every register (even a and flags)
-; so it can be dropped into the middle of any routine.
-MACRO QUEUE_SFX
-    push af
-    ld a, [wSfxQueue]
-    set \1, a
-    ld [wSfxQueue], a
-    pop af
-ENDM
-
-; Seed states
+; Seed states (the picture for states 1-4 is TILE_SPROUT - 1 + state)
 DEF SEED_GROWING  EQU 0
 DEF SEED_SPROUTED EQU 1
 DEF SEED_WILTED   EQU 2
 DEF SEED_FLOODED  EQU 3
+DEF SEED_STOLEN   EQU 4    ; a crow took it
 
 ; Offsets inside one seed's 8 bytes
 DEF S_STATE  EQU 0
@@ -101,48 +91,178 @@ DEF S_WATER  EQU 1
 DEF S_GROW   EQU 2         ; frames spent in the zone
 DEF S_DRY    EQU 3         ; frames spent at zero water
 DEF S_SOGGY  EQU 4         ; frames spent above the zone
+DEF S_TYPE   EQU 5         ; TYPE_xxx
 
-; Game states
-DEF STATE_TITLE EQU 0
-DEF STATE_PLAY  EQU 1
+; --- Twists (one bit each in wStageFlags) ---------------------------------------
+DEF TWISTB_SUN     EQU 0   ; the sun comes and goes; soil dries twice as fast
+DEF TWISTB_WIND    EQU 1   ; drops drift sideways
+DEF TWISTB_CROWS   EQU 2   ; crows try to steal seeds; splash them away
+DEF TWISTB_PUDDLES EQU 3   ; watering a soaked seed spills onto its neighbours
+DEF SUN_TIME    EQU 150    ; sun changes every 150 steps (every other frame: 5 s)
+DEF WIND_TIME   EQU 120    ; wind may turn every 120 steps (4 s)
+
+; Crow (it moves every other frame, so "steps" = 2 frames)
+DEF CROW_AWAY   EQU 0      ; not on screen, waiting
+DEF CROW_FLY    EQU 1      ; flying across to its target seed
+DEF CROW_LAND   EQU 2      ; dropping down onto the seed
+DEF CROW_PECK   EQU 3      ; pecking: steals the seed when the timer runs out
+DEF CROW_LEAVE  EQU 4      ; flying away (scared, or carrying the seed)
+DEF CROW_FLY_Y  EQU 80     ; flying height: below the cloud (sprite line limit)
+DEF CROW_GROUND_Y EQU 112  ; standing on a seed
+DEF CROW_PECK_TIME EQU 75  ; steps of pecking before the seed is gone (2.5 s)
+DEF CROW_WAIT   EQU 120    ; steps between crows (4 s)
+DEF CROW_RIGHT_X EQU 152   ; crows come in / leave at x = 0 or this
+
+; --- Modes and stages -------------------------------------------------------------
+DEF MODE_STORY   EQU 0
+DEF MODE_ENDLESS EQU 1
+DEF STORY_STAGES EQU 6
+DEF STAGE_SIZE   EQU 13    ; bytes per stage in StoryStages (play.asm)
+
+; --- Sound effects --------------------------------------------------------------
+; Each event sets one bit in wSfxQueue or wSfxQueue2. Several can happen in one
+; frame; they are all played at the end of the frame (see UpdateSound).
+DEF SFXB_START  EQU 0      ; stage starts      (channel 1: rising chirp)
+DEF SFXB_PAUSE  EQU 1      ; pause / unpause   (channel 1: blip)
+DEF SFXB_TIRED  EQU 2      ; cloud gets tired  (channel 1: falling "phew")
+DEF SFXB_WILT   EQU 3      ; a seed wilts      (channel 1: low droop)
+DEF SFXB_SPLASH EQU 4      ; drop waters a seed (channel 4: soft noise)
+DEF SFXB_FLOOD  EQU 5      ; a seed floods     (channel 4: long splash)
+DEF SFXB_SPROUT EQU 6      ; a seed sprouts    (channel 2: 3-note tune)
+DEF SFXB_RESULT EQU 7      ; round over        (channel 2: happy or sad tune)
+DEF SFX2B_CAW   EQU 0      ; a crow arrives    (channel 1: harsh caw)
+DEF SFX2B_SCARE EQU 1      ; crow splashed     (channel 4: flutter)
+DEF SFX2B_KIP   EQU 2      ; Kip's motif       (channel 2: Kip's "voice")
+DEF SFX2B_POP   EQU 3      ; the POP jingle    (channel 4 pop + channel 2)
+DEF SFX2B_MENU  EQU 4      ; menu move         (channel 1: tick)
+
+; QUEUE_SFX SFXB_xxx / QUEUE_SFX2 SFX2B_xxx: ask for a sound. Keeps every
+; register (even a and flags) so it can be dropped into the middle of any routine.
+MACRO QUEUE_SFX
+    push af
+    ld a, [wSfxQueue]
+    set \1, a
+    ld [wSfxQueue], a
+    pop af
+ENDM
+MACRO QUEUE_SFX2
+    push af
+    ld a, [wSfxQueue2]
+    set \1, a
+    ld [wSfxQueue2], a
+    pop af
+ENDM
+
+; ADD_A_TO_HL: hl = hl + a (a is changed).
+MACRO ADD_A_TO_HL
+    add a, l
+    ld l, a
+    adc a, h               ; a = h + l + carry...
+    sub l                  ; ...minus l = h + carry
+    ld h, a
+ENDM
+
+; Game states (which screen we're on)
+DEF STATE_TITLE  EQU 0
+DEF STATE_PLAY   EQU 1
+DEF STATE_ENDING EQU 2
+DEF STATE_LAB    EQU 3
 
 ; Sprite slots in the sprite table (each slot is 4 bytes)
-DEF SLOT_MAIN   EQU 0      ; slots 0-3: Kip (title) or the cloud (play)
+DEF SLOT_MAIN   EQU 0      ; slots 0-3: Kip (title/ending/Lab) or the cloud (play)
 DEF SLOT_DROPS  EQU 4      ; slots 4-11: water drops
+DEF SLOT_CROW   EQU 12     ; slots 12-15: the crow
 
 ; =============================================================================
-; Memory we use (work RAM). Fixed addresses so automatic tests can read them.
+; Memory we use (work RAM). Fixed addresses so automatic tests can find them
+; (the test script looks the names up in kernel-drop.sym).
 ; =============================================================================
 SECTION "Game state", WRAM0[$C000]
-wBootMarker::  db  ; $C000: $42 once start-up finished (tests check this)
-wJoyHeld::     db  ; $C001: buttons held right now (bits: see hardware.inc)
-wJoyPressed::  db  ; $C002: buttons that went down THIS frame
-wFrameCount::  db  ; $C003: counts up every frame (60 per second)
-wHopTimer::    db  ; $C004: > 0 while Kip is in the air (title screen)
-wGameState::   db  ; $C005: STATE_TITLE or STATE_PLAY
-wCloudX::      db  ; $C006: cloud left edge (pixels)
-wCloudY::      db  ; $C007: cloud top edge (pixels)
-wPaused::      db  ; $C008: 1 = paused
-wMoistureView::db  ; $C009: 1 = show exact moisture numbers (step 3)
-wDropDelay::   db  ; $C00A: frames until A can drop again
-wPourTimer::   db  ; $C00B: how long B has been held (while pouring)
-wTiredTimer::  db  ; $C00C: > 0 while the cloud rests after a long pour
-wActiveDrops:: db  ; $C00D: how many drops are in the air (tests read this)
-wRandom::      db  ; $C00E: random number seed
-wMsgDirty::    db  ; $C00F: 1 = the message line needs redrawing next VBlank
-wDrops::       ds MAX_DROPS * 2  ; $C010: each drop = Y, X (Y = 0 means unused)
-wSeeds::       ds NUM_SEEDS * SEED_SIZE ; $C020: 6 seeds x 8 bytes
-wGameOver::    db  ; $C050: 1 = every seed is done (result showing)
-wSprouted::    db  ; $C051: how many seeds sprouted
-wDryTick::     db  ; $C052: counts frames until the soil dries a little more
-wMsgPtr::      dw  ; $C053: which text the message line shows
-wBgDirty::     db  ; $C055: 1 = seed tiles need copying next VBlank
-; Tiles waiting to be copied to the screen at the next VBlank, per seed:
-wSeedTiles::   ds NUM_SEEDS * 4 ; $C056: tens digit, ones digit, gauge, seed
-wSfxQueue::    db  ; $C06E: sounds asked for this frame (one bit each)
-wTunePtr::     dw  ; $C06F: next note of the tune playing on channel 2
-wTuneTimer::   db  ; $C071: frames left on the current note (0 = no tune)
+wBootMarker::  db  ; $42 once start-up finished (tests check this)
+wJoyHeld::     db  ; buttons held right now (bits: see hardware.inc)
+wJoyPressed::  db  ; buttons that went down THIS frame
+wFrameCount::  db  ; counts up every frame (60 per second)
+wHopTimer::    db  ; > 0 while Kip is in the air (title, ending)
+wGameState::   db  ; STATE_xxx
+wRandom::      dw  ; random number generator state (never 0)
+
+; --- Round variables: all cleared when a stage starts -------------------------
+wRoundStart::
+wCloudX::      db  ; cloud left edge (pixels)
+wCloudY::      db  ; cloud top edge (pixels)
+wPaused::      db  ; 1 = paused
+wMoistureView::db  ; 1 = show exact moisture numbers
+wDropDelay::   db  ; frames until A can drop again
+wPourTimer::   db  ; how long B has been held (while pouring)
+wTiredTimer::  db  ; > 0 while the cloud rests after a long pour
+wActiveDrops:: db  ; how many drops are in the air (tests read this)
+wDrops::       ds MAX_DROPS * 2  ; each drop = Y, X (Y = 0 means unused)
+wSeeds::       ds NUM_SEEDS * SEED_SIZE ; 6 seeds x 8 bytes
+wGameOver::    db  ; 1 = every seed is done (result showing)
+wSprouted::    db  ; how many seeds sprouted
+wDryTick::     db  ; counts frames until the soil dries a little more
+wDryNow::      db  ; 1 = seeds lose water this frame
+wResult::      db  ; 1 = stage cleared, 0 = not (valid once wGameOver = 1)
+wIntroTimer::  db  ; > 0 while the stage name is showing
+wSunOut::      db  ; 1 = the sun is out (soil dries twice as fast)
+wSunTimer::    db  ; steps until the sun comes out / goes away
+wWind::        db  ; 0 = calm, 1 = blowing right, $FF (-1) = blowing left
+wWindTimer::   db  ; steps until the wind may turn
+wHudWind::     db  ; tile shown for the wind in the score bar (0 = none)
+wCrowState::   db  ; CROW_xxx
+wCrowX::       db  ; crow left edge (pixels)
+wCrowY::       db  ; crow top edge (pixels)
+wCrowTarget::  db  ; which seed the crow wants
+wCrowTimer::   db  ; steps until the next crow / until the seed is stolen
+wCrowDir::     db  ; 0 = facing right, 1 = facing left
+wSeedIndex::   db  ; loop counter used while updating seeds
+wRoundEnd::
+; ------------------------------------------------------------------------------
+
+wSeedTiles::   ds NUM_SEEDS * 4 ; per seed: tens digit, ones digit, gauge, seed
+wBgDirty::     db  ; 1 = seed tiles need copying next VBlank
+wMsgPtr::      dw  ; text shown on the message line (row 7)
+wMsgDirty::    db
+wMsg2Ptr::     dw  ; text shown on the second message line (row 9)
+wMsg2Dirty::   db
+wMsgBuf::      ds 13 ; room to build a message in RAM (12 letters + end mark)
+wHudBuf::      ds 20 ; the score bar (row 0), ready to copy
+wHudDirty::    db
+wMenu::        db  ; title menu: MODE_STORY or MODE_ENDLESS
+wMenuDirty::   db
+wMode::        db  ; mode being played
+wStage::       db  ; stage number, counting from 0
+wStageFlags::  db  ; twists in this stage (TWISTB_xxx bits)
+wStageDry::    db  ; frames between dryings in this stage
+wKipSeed::     db  ; which seed is Kip's ($FF = none)
+wScore::       dw  ; score / 10, as 4 decimal digits (BCD: low byte first)
+wHiScore::     dw  ; best score since power-on (same format)
+wTmpLow::      db  ; the seed type being worked on: zone low,
+wTmpHigh::     db  ;   zone high,
+wTmpDryAmt::   db  ;   water lost per drying,
+wTmpFlood::    db  ;   frames above the zone before it floods
+wSfxQueue::    db  ; sounds asked for this frame (one bit each)
+wSfxQueue2::   db
+wTunePtr::     dw  ; next note of the tune playing on channel 2
+wTuneTimer::   db  ; frames left on the current note (0 = no tune)
+wMusicPtr::    dw  ; next note of the music on channel 3
+wMusicLoop::   dw  ; where the music starts again when it reaches the end
+wMusicTimer::  db  ; frames left on the current music note (0 = no music)
+wLabPage::     db  ; Lab mode page (0-3)
+wLabSel::      db  ; sound test: chosen channel (0-3)
+wLabWindow::   db  ; layer test: 1 = window layer on
+wLabKipX::     db  ; sprite test: Kip's position
+wLabKipY::     db
+wLabFrames::   dw  ; timer test: frames since the Lab opened
+wLabSeconds::  dw  ; ...and seconds (BCD)
+wLabTick::     db  ; frames toward the next second
+wLabLines::    ds 40 ; two 20-tile rows the Lab pages draw into
+wLabDirty::    db
 wStateEnd::
+
+    ; Seeds must sit inside one 256-byte page: the seed code steps through a
+    ; seed's bytes with "inc l", which never carries into h.
+    ASSERT HIGH(wSeeds) == HIGH(wSeeds + NUM_SEEDS * SEED_SIZE - 1)
 
 ; A copy of the sprite table. We edit it any time; the VBlank interrupt copies
 ; it into the real sprite table with OAM DMA. DMA needs a 256-byte boundary.
@@ -182,6 +302,7 @@ Start:
     ldh [rNR50], a          ; left and right volume 7 (the max)
     ld a, $FF
     ldh [rNR51], a
+    call LoadWave           ; the wave channel's sound shape (sound.asm)
 
     call ScreenOff
 
@@ -196,8 +317,10 @@ Start:
     ld bc, wStateEnd - wBootMarker
     xor a
     call MemFill
-    ld a, $5A
-    ld [wRandom], a         ; any starting seed
+    ld a, $5A               ; any starting value except 0
+    ld [wRandom], a
+    ld a, $C3
+    ld [wRandom + 1], a
 
     ; Clear our sprite table copy, then copy the DMA routine into high RAM.
     call ClearSprites
@@ -205,8 +328,6 @@ Start:
     ld de, OAMDMARoutine
     ld bc, OAMDMARoutineEnd - OAMDMARoutine
     call MemCopy
-
-    call DrawTitleScreen
 
     ; Shades: colour 0 = lightest ... colour 3 = darkest.
     ld a, %11100100
@@ -217,13 +338,16 @@ Start:
     xor a
     ldh [rSCX], a
     ldh [rSCY], a
+    ld a, 7                 ; window layer (only used in the Lab): left edge,
+    ldh [rWX], a
+    ld a, 128               ; near the bottom of the screen
+    ldh [rWY], a
 
-    ; Turn on the VBlank interrupt and the screen.
     ld a, IEF_VBLANK
     ldh [rIE], a
     xor a
     ldh [rIF], a
-    call ScreenOn
+    call EnterTitle         ; draws the title and turns the screen on
 
     ld a, $42
     ld [wBootMarker], a     ; start-up finished (for automatic tests)
@@ -232,391 +356,97 @@ Start:
 ; =============================================================================
 ; Main loop. Runs once per frame.
 ; First: quick video memory jobs (we just woke up in VBlank, so it's safe).
-; Then:  read buttons and update the current screen.
+; Then:  read buttons, update the current screen, play sounds.
 ; =============================================================================
 MainLoop:
     halt                    ; sleep until the next VBlank interrupt
-
-    ; --- VBlank jobs (must be quick) ---
-    ld a, [wBgDirty]
-    and a
-    call nz, CopySeedTiles
-    ld a, [wMsgDirty]
-    and a
-    call nz, DrawMessage
-
-    ; --- Game logic ---
+    call VBlankJobs
     call ReadJoypad
-    call NextRandom
+    call NextRandom         ; stir the random numbers every frame
+
+    ; Jump to the update routine for the current screen (StateTable below).
     ld a, [wGameState]
-    cp STATE_PLAY
-    jr z, .play
-    call UpdateTitle
-    jr .sound
-.play
-    call UpdatePlay
-.sound
+    add a, a                ; 2 bytes per table entry
+    ld hl, StateTable
+    ADD_A_TO_HL
+    ld a, [hli]
+    ld h, [hl]
+    ld l, a
+    call CallHL
+
     call UpdateSound
     jr MainLoop
 
-; =============================================================================
-; Title screen
-; =============================================================================
-UpdateTitle:
-    ; Start: begin the game.
-    ld a, [wJoyPressed]
-    bit PADB_START, a
-    jp nz, StartGame
+StateTable:
+    dw UpdateTitle          ; STATE_TITLE
+    dw UpdatePlay           ; STATE_PLAY
+    dw UpdateEnding         ; STATE_ENDING
+    dw UpdateLab            ; STATE_LAB
 
-    ; A: hop (if Kip isn't already in the air).
-    bit PADB_A, a
-    jr z, .noHop
-    ld a, [wHopTimer]
-    and a
-    jr nz, .noHop
-    ld a, HOP_HEIGHT
-    ld [wHopTimer], a
-.noHop
-    ; Kip floats back down one pixel per frame.
-    ld a, [wHopTimer]
-    and a
-    jr z, DrawKip
-    dec a
-    ld [wHopTimer], a
-    ; fall through to DrawKip
-
-; DrawKip: Kip's 4 sprites (2x2 tiles). Height = hop + a gentle 1-pixel bob.
-DrawKip:
-    ld a, [wFrameCount]
-    swap a                  ; bit 4 of the frame counter -> bit 0
-    and 1                   ; 0 or 1: the bob
-    ld b, a
-    ld a, [wHopTimer]
-    add a, b
-    ld b, a
-    ld a, KIP_Y
-    sub b
-    ld b, a                 ; b = Kip's top (pixels)
-    ld c, KIP_X             ; c = Kip's left
-    ld d, TILE_KIP          ; d = first of Kip's 4 tiles
-    ld e, 0                 ; e = sprite flags (normal palette)
-    ld hl, ShadowOAM + SLOT_MAIN * 4
-    jp Draw16x16
-
-; StartGame: switch to the play screen.
-StartGame:
-    call ScreenOff
-    call DrawPlayScreen
-    call ClearSprites
-    ld a, STATE_PLAY
-    ld [wGameState], a
-    ld a, CLOUD_START_X
-    ld [wCloudX], a
-    ld a, CLOUD_START_Y
-    ld [wCloudY], a
-    xor a
-    ld [wPaused], a
-    ld [wPourTimer], a
-    ld [wTiredTimer], a
-    ld [wDropDelay], a
-    ld [wActiveDrops], a
-    ld [wGameOver], a
-    ld [wSprouted], a
-    ld [wDryTick], a
-    ld [wTuneTimer], a      ; stop any tune still playing from last round
-    ld hl, wDrops
-    ld bc, MAX_DROPS * 2
-    call MemFill
-    call ResetSeeds
-    ld de, TextBlank12
-    call SetMessage
-    call DrawMessage        ; screen is off, so we can draw right away
-    call BuildSeedTiles
-    call CopySeedTiles
-    QUEUE_SFX SFXB_START
-    jp ScreenOn
-
-; ResetSeeds: every seed starts growing, a little dry.
-ResetSeeds:
-    ld hl, wSeeds
-    ld b, NUM_SEEDS
-.seed
-    ld a, SEED_GROWING
-    ld [hli], a             ; S_STATE
-    ld a, WATER_START
-    ld [hli], a             ; S_WATER
-    xor a
-    ld c, SEED_SIZE - 2
-.zero
-    ld [hli], a             ; timers
-    dec c
-    jr nz, .zero
-    dec b
-    jr nz, .seed
-    ret
+CallHL:
+    jp hl
 
 ; =============================================================================
-; Play screen
+; VBlank jobs: copy whatever changed onto the screen.
+; The break between frames is only 10 screen lines long (lines 144-153). A job
+; only starts if we're still in the first 5 of them, so it can't run past the
+; end; otherwise its "dirty" flag stays set and it runs next frame. The seed
+; tiles change every frame, so they go last and the rare jobs go first.
 ; =============================================================================
-UpdatePlay:
-    ; Round over: Start plays again.
-    ld a, [wGameOver]
+VBlankJobs:
+    ld a, [wMsgDirty]
     and a
-    jr z, .playing
-    ld a, [wJoyPressed]
-    bit PADB_START, a
-    jp nz, StartGame
-    ret
-.playing
-    ; Start: pause / unpause (the text is drawn at the next VBlank).
-    ld a, [wJoyPressed]
-    bit PADB_START, a
-    jr z, .noPause
-    ld a, [wPaused]
-    xor 1
-    ld [wPaused], a
-    ld de, TextPause
-    jr nz, .showPause
-    ld de, TextBlank12
-.showPause
-    QUEUE_SFX SFXB_PAUSE
-    call SetMessage
-.noPause
-    ld a, [wPaused]
+    jr z, .msg2
+    call RoomInVBlank
+    ret c
+    call DrawMessage
+.msg2
+    ld a, [wMsg2Dirty]
     and a
-    ret nz                  ; paused: nothing moves
-
-    ; Select: moisture view on / off (shown from step 3).
-    ld a, [wJoyPressed]
-    bit PADB_SELECT, a
-    jr z, .noSelect
-    ld a, [wMoistureView]
-    xor 1
-    ld [wMoistureView], a
-.noSelect
-    call MoveCloud
-    call MakeRain
-    call MoveDrops
-    call UpdateSeeds
-    call BuildSeedTiles
-    jp DrawPlaySprites
-
-; MoveCloud: D-pad moves the cloud one pixel per frame, inside the limits.
-MoveCloud:
-    ld a, [wJoyHeld]
-    ld b, a
-    ld hl, wCloudX
-    bit PADB_LEFT, b
-    jr z, .notLeft
-    ld a, [hl]
-    cp CLOUD_MIN_X + 1
-    jr c, .notLeft
-    dec [hl]
-.notLeft
-    bit PADB_RIGHT, b
-    jr z, .notRight
-    ld a, [hl]
-    cp CLOUD_MAX_X
-    jr nc, .notRight
-    inc [hl]
-.notRight
-    ld hl, wCloudY
-    bit PADB_UP, b
-    jr z, .notUp
-    ld a, [hl]
-    cp CLOUD_TOP + 1
-    jr c, .notUp
-    dec [hl]
-.notUp
-    bit PADB_DOWN, b
+    jr z, .hud
+    call RoomInVBlank
+    ret c
+    call DrawMessage2
+.hud
+    ld a, [wHudDirty]
+    and a
+    jr z, .menu
+    call RoomInVBlank
+    ret c
+    call DrawHud
+.menu
+    ld a, [wMenuDirty]
+    and a
+    jr z, .lab
+    call RoomInVBlank
+    ret c
+    call DrawMenuArrow
+.lab
+    ld a, [wLabDirty]
+    and a
+    jr z, .seeds
+    call RoomInVBlank
+    ret c
+    call DrawLabLines
+.seeds
+    ld a, [wBgDirty]
+    and a
     ret z
-    ld a, [hl]
-    cp CLOUD_LOW
-    ret nc
-    inc [hl]
+    call RoomInVBlank
+    ret c
+    jp CopySeedTiles
+
+; RoomInVBlank: carry clear = still early in VBlank (lines 144-148): safe to
+; start a job. Carry set = too late, wait for the next frame.
+RoomInVBlank:
+    ldh a, [rLY]
+    sub 144                 ; lines into VBlank (wraps to a big number if < 144)
+    cp 5                    ; carry set if 0-4...
+    ccf                     ; ...flip it: carry clear means "go ahead"
     ret
 
-; MakeRain: A = one drop (with a short delay), hold B = pour.
-MakeRain:
-    ; Count down the delays.
-    ld hl, wDropDelay
-    ld a, [hl]
-    and a
-    jr z, .delayDone
-    dec [hl]
-.delayDone
-    ld hl, wTiredTimer
-    ld a, [hl]
-    and a
-    jr z, .rested
-    dec [hl]
-.rested
-    ; A: single drop.
-    ld a, [wJoyPressed]
-    bit PADB_A, a
-    jr z, .noA
-    ld a, [wDropDelay]
-    and a
-    jr nz, .noA
-    ld a, A_DELAY
-    ld [wDropDelay], a
-    call SpawnDrop
-.noA
-    ; B held: pour, unless the cloud is tired.
-    ld a, [wJoyHeld]
-    bit PADB_B, a
-    jr nz, .pouring
-    xor a
-    ld [wPourTimer], a      ; B let go: the pour counter resets
-    ret
-.pouring
-    ld a, [wTiredTimer]
-    and a
-    ret nz                  ; tired: no rain
-    ld hl, wPourTimer
-    inc [hl]
-    ld a, [hl]
-    cp POUR_LIMIT
-    jr c, .keepPouring
-    xor a                   ; poured too long: rest
-    ld [hl], a
-    ld a, TIRED_TIME
-    ld [wTiredTimer], a
-    QUEUE_SFX SFXB_TIRED
-    ret
-.keepPouring
-    and POUR_EVERY - 1      ; one drop every POUR_EVERY frames
-    ret nz
-    ; fall through to SpawnDrop
-
-; SpawnDrop: put a new drop under the cloud, if there's a free slot.
-; Higher cloud = drops scatter further left/right.
-SpawnDrop:
-    ld hl, wDrops
-    ld b, MAX_DROPS
-.find
-    ld a, [hl]
-    and a                   ; Y = 0 means this slot is free
-    jr z, .found
-    inc hl
-    inc hl
-    dec b
-    jr nz, .find
-    ret                     ; all 8 drops are in the air
-.found
-    ; Y: just under the cloud.
-    ld a, [wCloudY]
-    add a, 12
-    ld [hli], a
-    ; How far drops can scatter, from the cloud's height:
-    ;   low (Y >= 44): 0, middle (Y >= 28): 0-3, high: 0-7 pixels.
-    ld a, [wCloudY]
-    ld c, 0
-    cp 44
-    jr nc, .gotSpread
-    ld c, 3
-    cp 28
-    jr nc, .gotSpread
-    ld c, 7
-.gotSpread
-    ; X = cloud middle - 4 + random(0..c) - c/2
-    ld a, [wRandom]
-    and c
-    ld b, a
-    ld a, c
-    srl a
-    ld e, a                 ; e = c / 2
-    ld a, [wCloudX]
-    add a, 4                ; cloud is 16 wide, drop is 8: centre it
-    add a, b
-    sub e
-    ld [hl], a
-    ret
-
-; MoveDrops: every drop falls; drops that reach the soil disappear.
-MoveDrops:
-    ld hl, wDrops
-    ld b, MAX_DROPS
-    ld c, 0                 ; count of drops still falling
-.loop
-    ld a, [hl]
-    and a
-    jr z, .next             ; unused slot
-    add a, DROP_SPEED
-    cp SOIL_Y - 4
-    jr c, .stillFalling
-    xor a                   ; hit the soil: the drop is gone...
-    ld [hl], a
-    push hl
-    push bc
-    inc hl
-    ld a, [hl]              ; ...and whatever seed is under it drinks
-    call WaterAt
-    pop bc
-    pop hl
-    jr .next
-.stillFalling
-    ld [hl], a
-    inc c
-.next
-    inc hl
-    inc hl
-    dec b
-    jr nz, .loop
-    ld a, c
-    ld [wActiveDrops], a
-    ret
-
-; DrawPlaySprites: the cloud (slots 0-3) and the drops (slots 4-11).
-DrawPlaySprites:
-    ; Tired cloud uses the pale palette (sprite palette 1).
-    ld e, 0
-    ld a, [wTiredTimer]
-    and a
-    jr z, .normal
-    ld e, OAMF_PAL1
-.normal
-    ld a, [wCloudY]
-    ld b, a
-    ld a, [wCloudX]
-    ld c, a
-    ld d, TILE_CLOUD
-    ld hl, ShadowOAM + SLOT_MAIN * 4
-    call Draw16x16
-
-    ; Drops: hl now points at slot 4.
-    ld de, wDrops
-    ld b, MAX_DROPS
-.drop
-    ld a, [de]              ; Y (0 = unused)
-    and a
-    jr z, .hidden
-    add a, 16               ; sprite table stores Y + 16
-    ld [hli], a
-    inc de
-    ld a, [de]              ; X
-    add a, 8                ; ...and X + 8
-    ld [hli], a
-    inc de
-    ld a, TILE_DROP
-    ld [hli], a
-    xor a
-    ld [hli], a
-    jr .nextDrop
-.hidden
-    xor a                   ; Y = 0 puts the sprite off-screen
-    ld [hli], a
-    ld [hli], a
-    ld [hli], a
-    ld [hli], a
-    inc de
-    inc de
-.nextDrop
-    dec b
-    jr nz, .drop
-    ret
-
-; SetMessage: show text de on the message line (drawn at the next VBlank).
+; SetMessage / SetMessage2: show text de (12 letters) on message line 1 / 2.
+; It's drawn at the next VBlank.
 SetMessage:
     ld a, e
     ld [wMsgPtr], a
@@ -625,10 +455,19 @@ SetMessage:
     ld a, 1
     ld [wMsgDirty], a
     ret
+SetMessage2:
+    ld a, e
+    ld [wMsg2Ptr], a
+    ld a, d
+    ld [wMsg2Ptr + 1], a
+    ld a, 1
+    ld [wMsg2Dirty], a
+    ret
 
-; DrawMessage: write the message line (12 letters) in the middle of the screen.
-; Only called when video memory is safe: right after VBlank or screen off.
-DEF MSG_POS EQU SCRN0 + SCRN_VY * 7 + 4
+; DrawMessage / DrawMessage2: write the message lines in the middle of the
+; screen. Only called when video memory is safe (VBlank or screen off).
+DEF MSG_POS  EQU SCRN0 + SCRN_VY * 7 + 4
+DEF MSG2_POS EQU SCRN0 + SCRN_VY * 9 + 4
 DrawMessage:
     xor a
     ld [wMsgDirty], a
@@ -638,479 +477,15 @@ DrawMessage:
     ld d, a
     ld hl, MSG_POS
     jp PrintText
-
-; =============================================================================
-; Sound
-; =============================================================================
-; The Game Boy's sound chip plays on its own once a note is started: we just
-; write a few registers (pitch, volume, how it fades) and it does the rest.
-; Pitch numbers: frequency in Hz = 131072 / (2048 - pitch).
-
-; UpdateSound: once per frame. Play queued effects, then step the tune.
-UpdateSound:
-    ld a, [wSfxQueue]
-    and a
-    jr z, .tune
-    ld b, a
+DrawMessage2:
     xor a
-    ld [wSfxQueue], a
-    ; Noise channel (later lines win if two happen in the same frame).
-    bit SFXB_SPLASH, b
-    ld hl, SfxSplash
-    call nz, PlayNoise
-    bit SFXB_FLOOD, b
-    ld hl, SfxFlood
-    call nz, PlayNoise
-    ; Channel 1 effects, least to most important.
-    bit SFXB_PAUSE, b
-    ld hl, SfxPause
-    call nz, PlaySquare
-    bit SFXB_START, b
-    ld hl, SfxStart
-    call nz, PlaySquare
-    bit SFXB_TIRED, b
-    ld hl, SfxTired
-    call nz, PlaySquare
-    bit SFXB_WILT, b
-    ld hl, SfxWilt
-    call nz, PlaySquare
-    ; Channel 2 tunes: the round result beats a sprout.
-    bit SFXB_SPROUT, b
-    ld hl, TuneSprout
-    call nz, StartTune
-    bit SFXB_RESULT, b
-    jr z, .tune
-    ld a, [wSprouted]
-    cp GOOD_RESULT
-    ld hl, TuneWin
-    jr nc, .start
-    ld hl, TuneLose
-.start
-    call StartTune
-
-.tune
-    ; Step the tune on channel 2: count down this note, then start the next.
-    ld a, [wTuneTimer]
-    and a
-    ret z                   ; no tune playing
-    dec a
-    ld [wTuneTimer], a
-    ret nz                  ; current note still going
-    ld a, [wTunePtr]
-    ld l, a
-    ld a, [wTunePtr + 1]
-    ld h, a
-    ; fall through to PlayNote
-
-; PlayNote: hl = a note (pitch low, pitch high, frames). Frames 0 = tune over.
-PlayNote:
-    ld a, [hli]
-    ld c, a                 ; pitch low
-    ld a, [hli]
-    ld d, a                 ; pitch high
-    ld a, [hli]             ; how many frames
-    and a
-    ret z                   ; end of tune (wTuneTimer stays 0)
-    ld [wTuneTimer], a
-    ld a, l
-    ld [wTunePtr], a
-    ld a, h
-    ld [wTunePtr + 1], a
-    ld a, $80
-    ldh [rNR21], a          ; 50% square wave: a clean "beep" tone
-    ld a, $D3
-    ldh [rNR22], a          ; volume 13, fading out gently
-    ld a, c
-    ldh [rNR23], a
-    ld a, d
-    or $80                  ; bit 7 = start the note
-    ldh [rNR24], a
-    ret
-
-; StartTune: hl = first note. Keeps register b (UpdateSound needs it).
-StartTune:
-    jr PlayNote
-
-; PlaySquare: hl = 5 bytes for channel 1 (sweep, duty, envelope, pitch lo, hi).
-PlaySquare:
-    ld c, LOW(rNR10)
-    ld e, 5
-    jr CopyToSound
-
-; PlayNoise: hl = 4 bytes for channel 4 (length, envelope, texture, start).
-PlayNoise:
-    ld c, LOW(rNR41)
-    ld e, 4
-CopyToSound:
-    ld a, [hli]
-    ldh [c], a              ; write to $FF00 + c
-    inc c
-    dec e
-    jr nz, CopyToSound
-    ret
-
-; --- Effect data ---
-;                sweep duty  envel pitch lo/hi (bit 7 of hi = start)
-SfxStart:   db $15, $80, $F2, $00, $86   ; pitch rises quickly
-SfxPause:   db $00, $80, $A1, $83, $87   ; short high blip
-SfxTired:   db $1D, $80, $A3, $00, $87   ; pitch falls: "phew"
-SfxWilt:    db $2F, $40, $C4, $40, $86   ; slow low droop
-;                len   envel texture start
-SfxSplash:  db $00, $41, $24, $80        ; quiet short hiss
-SfxFlood:   db $00, $F5, $46, $80        ; loud long splash
-
-; --- Tunes: each note = pitch low, pitch high, frames; 0,0,0 ends ---
-DEF NOTE_C4 EQU $60C
-DEF NOTE_E4 EQU $673
-DEF NOTE_G4 EQU $6B2
-DEF NOTE_C5 EQU $705
-DEF NOTE_E5 EQU $739
-DEF NOTE_G5 EQU $759
-DEF NOTE_C6 EQU $783
-MACRO NOTE
-    db LOW(\1), HIGH(\1), \2
-ENDM
-TuneSprout:
-    NOTE NOTE_E5, 4
-    NOTE NOTE_G5, 4
-    NOTE NOTE_C6, 10
-    db 0, 0, 0
-TuneWin:
-    NOTE NOTE_C5, 7
-    NOTE NOTE_E5, 7
-    NOTE NOTE_G5, 7
-    NOTE NOTE_C6, 20
-    db 0, 0, 0
-TuneLose:
-    NOTE NOTE_G4, 10
-    NOTE NOTE_E4, 10
-    NOTE NOTE_C4, 24
-    db 0, 0, 0
-
-; =============================================================================
-; Seeds
-; =============================================================================
-
-; WaterAt: a drop landed with its left edge at x = a. If it's over a seed
-; that is still growing, that seed gets DROP_WATER more water.
-;   Seed i sits at x = 8 + 24*i; its plot is the 16 pixels from x-4 to x+12.
-WaterAt:
-    add a, 4                ; drop centre is 4 pixels right of its left edge
-    sub 4                   ; ...measure from the first plot's left edge (x = 4)
-    ret c                   ; left of the first plot
-    ld c, 0                 ; c = which seed
-.divide                     ; a / 24, counting in c, remainder in a
-    cp 24
-    jr c, .gotPlot
-    sub 24
-    inc c
-    jr .divide
-.gotPlot
-    cp PLOT_WIDTH
-    ret nc                  ; landed between plots
-    ld a, c
-    cp NUM_SEEDS
-    ret nc                  ; right of the last plot
-    call SeedAddress        ; hl = this seed
-    ld a, [hl]
-    cp SEED_GROWING
-    ret nz                  ; already sprouted/wilted/flooded: no effect
-    inc hl                  ; S_WATER
-    ld a, [hl]
-    add a, DROP_WATER
-    cp WATER_MAX + 1
-    jr c, .store
-    ld a, WATER_MAX
-.store
-    ld [hl], a
-    QUEUE_SFX SFXB_SPLASH
-    ret
-
-; SeedAddress: hl = wSeeds + c * 8.
-SeedAddress:
-    ld a, c
-    add a, a
-    add a, a
-    add a, a                ; c * 8
-    ld hl, wSeeds
-    add a, l
-    ld l, a
-    ret nc
-    inc h
-    ret
-
-; UpdateSeeds: drying, growing, wilting and flooding, once per frame.
-UpdateSeeds:
-    ; Is it time for the soil to dry a little?
-    ld hl, wDryTick
-    inc [hl]
-    ld a, [hl]
-    cp DRY_EVERY
-    ld e, 0                 ; e = 1 if seeds lose water this frame
-    jr c, .noDry
-    xor a
-    ld [hl], a
-    ld e, 1
-.noDry
-    ld hl, wSeeds
-    ld b, NUM_SEEDS
-    ld d, 0                 ; d = how many seeds are done (not growing)
-.seed
-    push hl
-    ld a, [hl]              ; S_STATE
-    cp SEED_GROWING
-    jr z, .growing
-    inc d
-    jr .next
-.growing
-    inc hl                  ; S_WATER
-    ld a, e
-    and a
-    jr z, .wet
-    ld a, [hl]
-    and a
-    jr z, .wet
-    dec [hl]                ; soil dried a little
-.wet
-    ld a, [hl]              ; a = water
-    ld c, a
-    inc hl                  ; S_GROW
-    ; --- Too dry? (water = 0) ---
-    and a
-    jr nz, .notDry
-    inc hl                  ; S_DRY
-    inc [hl]
-    ld a, [hl]
-    cp WILT_TIME
-    jr c, .next
-    ld a, SEED_WILTED
-    QUEUE_SFX SFXB_WILT
-    jr .setState
-.notDry
-    inc hl                  ; S_DRY
-    ld [hl], 0              ; any water resets the dry timer
-    dec hl                  ; back to S_GROW
-    ; --- Too wet? (above the zone) ---
-    ld a, c
-    cp ZONE_HIGH + 1
-    jr c, .notSoggy
-    inc hl
-    inc hl                  ; S_SOGGY
-    inc [hl]
-    ld a, [hl]
-    cp FLOOD_TIME
-    jr c, .next
-    ld a, SEED_FLOODED
-    QUEUE_SFX SFXB_FLOOD
-    jr .setState
-.notSoggy
-    push hl
-    inc hl
-    inc hl                  ; S_SOGGY
-    ld [hl], 0
-    pop hl                  ; back to S_GROW
-    ; --- Just right? (inside the zone) ---
-    ld a, c
-    cp ZONE_LOW
-    jr c, .next             ; a bit dry, but not dying: nothing happens
-    inc [hl]                ; S_GROW
-    ld a, [hl]
-    cp GROW_TIME
-    jr c, .next
-    ld a, [wSprouted]
-    inc a
-    ld [wSprouted], a
-    ld a, SEED_SPROUTED
-    QUEUE_SFX SFXB_SPROUT
-.setState
-    pop hl
-    ld [hl], a              ; S_STATE
-    push hl
-    inc d
-.next
-    pop hl
-    ld a, l
-    add a, SEED_SIZE
-    ld l, a
-    jr nc, .noCarry
-    inc h
-.noCarry
-    dec b
-    jr nz, .seed
-
-    ; Every seed done? Show the result.
-    ld a, d
-    cp NUM_SEEDS
-    ret nz
-    ld a, 1
-    ld [wGameOver], a
-    QUEUE_SFX SFXB_RESULT
-    ld a, [wSprouted]
-    cp NUM_SEEDS
-    ld de, TextAllSprouted
-    jr z, .result
-    cp GOOD_RESULT
-    ld de, TextStageClear
-    jr nc, .result
-    ld de, TextTryAgain
-.result
-    jp SetMessage
-
-; BuildSeedTiles: work out which tiles each seed needs (number, gauge, seed
-; picture) and mark them for copying at the next VBlank.
-BuildSeedTiles:
-    ld hl, wSeeds
-    ld de, wSeedTiles
-    ld b, NUM_SEEDS
-.seed
-    ld a, [hli]             ; S_STATE
-    ld c, a
-    ld a, [hl]              ; S_WATER
-    push hl
-    push bc
-    ld h, a                 ; h = water (kept for the gauge)
-    ; Moisture numbers (only in moisture view, and only while growing).
-    ld a, [wMoistureView]
-    and a
-    jr z, .noNumber
-    ld a, c
-    cp SEED_GROWING
-    jr nz, .noNumber
-    ld a, h
-    ld l, 0                 ; l = tens
-.tens
-    cp 10
-    jr c, .gotTens
-    sub 10
-    inc l
-    jr .tens
-.gotTens
-    ld b, a                 ; b = ones
-    ld a, l
-    add a, TILE_DIGIT0
-    ld [de], a
-    inc de
-    ld a, b
-    add a, TILE_DIGIT0
-    ld [de], a
-    inc de
-    jr .gauge
-.noNumber
-    xor a
-    ld [de], a
-    inc de
-    ld [de], a
-    inc de
-.gauge
-    ; Gauge: water / 8 = level 0-7 (blank once the seed is done).
-    ld a, c
-    cp SEED_GROWING
-    ld a, 0
-    jr nz, .storeGauge
-    ld a, h
-    srl a
-    srl a
-    srl a
-    add a, TILE_GAUGE
-.storeGauge
-    ld [de], a
-    inc de
-    ; Seed picture: one tile per state (seed, sprout, wilted, flooded).
-    ld a, c
-    add a, TILE_SEED
-    ld [de], a
-    inc de
-    pop bc
-    pop hl
-    ld a, l
-    add a, SEED_SIZE - 1    ; hl was already one past S_STATE
-    ld l, a
-    jr nc, .noCarry
-    inc h
-.noCarry
-    dec b
-    jr nz, .seed
-    ld a, 1
-    ld [wBgDirty], a
-    ret
-
-; CopySeedTiles: copy wSeedTiles onto the screen (rows NUMBER, GAUGE, SEED).
-; Only called when video memory is safe: right after VBlank or screen off.
-CopySeedTiles:
-    xor a
-    ld [wBgDirty], a
-    ld de, wSeedTiles
-    ld hl, SCRN0 + SCRN_VY * NUMBER_ROW + SEED_COL0
-    ld b, NUM_SEEDS
-.seed
-    push hl
-    ld a, [de]              ; tens digit
-    inc de
-    ld [hli], a
-    ld a, [de]              ; ones digit
-    inc de
-    ld [hl], a
-    ld a, l
-    add a, SCRN_VY - 1      ; down one row, back one column
-    ld l, a
-    jr nc, .c1
-    inc h
-.c1
-    ld a, [de]              ; gauge
-    inc de
-    ld [hl], a
-    ld a, l
-    add a, SCRN_VY          ; down one row
-    ld l, a
-    jr nc, .c2
-    inc h
-.c2
-    ld a, [de]              ; seed picture
-    inc de
-    ld [hl], a
-    pop hl
-    ld a, l
-    add a, SEED_COL_STEP    ; next seed's column
-    ld l, a
-    jr nc, .c3
-    inc h
-.c3
-    dec b
-    jr nz, .seed
-    ret
-
-; =============================================================================
-; Screens (drawn while the screen is off)
-; =============================================================================
-DrawTitleScreen:
-    call ClearMap
-    ld hl, SCRN0 + SCRN_VY * 4 + 4
-    ld de, TextTitle
-    call PrintText
-    ld hl, SCRN0 + SCRN_VY * 6 + 2
-    ld de, TextSeries
-    call PrintText
-    ld hl, SCRN0 + SCRN_VY * 15 + 4
-    ld de, TextPressStart
+    ld [wMsg2Dirty], a
+    ld a, [wMsg2Ptr]
+    ld e, a
+    ld a, [wMsg2Ptr + 1]
+    ld d, a
+    ld hl, MSG2_POS
     jp PrintText
-
-DrawPlayScreen:
-    call ClearMap
-    ; Soil: one row of surface, then one row of dirt, across the screen.
-    ld hl, SCRN0 + SCRN_VY * SOIL_ROW
-    ld bc, 20
-    ld a, TILE_SOIL_TOP
-    call MemFill
-    ld hl, SCRN0 + SCRN_VY * (SOIL_ROW + 1)
-    ld bc, 20
-    ld a, TILE_SOIL
-    jp MemFill
-
-ClearMap:
-    ld hl, SCRN0
-    ld bc, SCRN_VY * 32
-    xor a
-    jp MemFill
 
 ; =============================================================================
 ; Helpers
@@ -1129,8 +504,10 @@ ScreenOff:
     ldh [rLCDC], a
     ret
 
+; ScreenOn: background + sprites on; the window layer stays off (the Lab
+; turns it on). Tiles at $8000, window map at $9C00.
 ScreenOn:
-    ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_OBJON | LCDCF_BGON
+    ld a, LCDCF_ON | LCDCF_WIN9C00 | LCDCF_BLK01 | LCDCF_OBJON | LCDCF_BGON
     ldh [rLCDC], a
     ret
 
@@ -1138,6 +515,13 @@ ScreenOn:
 ClearSprites:
     ld hl, ShadowOAM
     ld bc, 4 * 40
+    xor a
+    jp MemFill
+
+; ClearMap: blank the whole background map (screen off only).
+ClearMap:
+    ld hl, SCRN0
+    ld bc, SCRN_VY * 32
     xor a
     jp MemFill
 
@@ -1180,16 +564,98 @@ Draw16x16:
     ld [hli], a
     ret
 
-; NextRandom: a simple pseudo-random number that changes every frame.
-; seed = seed * 5 + 1 (wraps around at 256).
-NextRandom:
-    ld a, [wRandom]
+; Draw16x16Flip: the same, mirrored left-right (e should include OAMF_XFLIP).
+; Each 8x8 part is mirrored by the hardware, but we also have to swap the left
+; and right parts: the left sprite shows the top-RIGHT tile, and so on.
+Draw16x16Flip:
+    ld a, b
+    add a, 16
     ld b, a
-    add a, a
-    add a, a
-    add a, b                ; a = seed * 5
-    inc a
+    ld a, c
+    add a, 8
+    ld c, a
+    inc d                   ; top-right tile...
+    call .one               ; ...on the left
+    dec d                   ; top-left tile...
+    ld a, c
+    add a, 8
+    ld c, a
+    call .one               ; ...on the right
+    ld a, b
+    add a, 8
+    ld b, a
+    ld a, c
+    sub 8
+    ld c, a
+    inc d
+    inc d
+    inc d                   ; bottom-right tile on the left
+    call .one
+    dec d                   ; bottom-left tile on the right
+    ld a, c
+    add a, 8
+    ld c, a
+.one
+    ld a, b
+    ld [hli], a
+    ld a, c
+    ld [hli], a
+    ld a, d
+    ld [hli], a
+    ld a, e
+    ld [hli], a
+    ret
+
+; HideSprites: hl = first slot, b = how many sprites to hide.
+HideSprites:
+    xor a
+.loop
+    ld [hli], a             ; Y = 0 puts the sprite off-screen
+    ld [hli], a
+    ld [hli], a
+    ld [hli], a
+    dec b
+    jr nz, .loop
+    ret
+
+; NextRandom: returns a new random number in a (other registers are kept).
+; A 16-bit "xorshift" generator: x ^= x << 7, x ^= x >> 9, x ^= x << 8.
+; Shifting and mixing the bits like this visits all 65535 non-zero values.
+NextRandom:
+    push bc
+    push de
+    ld a, [wRandom]
+    ld c, a                 ; c = low byte
+    ld a, [wRandom + 1]
+    ld b, a                 ; b = high byte
+    ; x ^= x << 7: the high byte gets (b << 7) | (c >> 1), the low byte c << 7.
+    ld a, b
+    rrca
+    and $80                 ; a = b << 7 (only bit 0 of b survives)
+    ld e, a
+    ld a, c
+    srl a                   ; c >> 1
+    or e
+    xor b
+    ld b, a
+    ld a, c
+    rrca
+    and $80                 ; c << 7
+    xor c
+    ld c, a
+    ; x ^= x >> 9: the low byte gets high >> 1.
+    ld a, b
+    srl a
+    xor c
+    ld c, a
+    ; x ^= x << 8: the high byte gets the low byte.
+    xor b
+    ld b, a
+    ld [wRandom + 1], a
+    ld a, c
     ld [wRandom], a
+    pop de
+    pop bc
     ret
 
 ; ReadJoypad: read all 8 buttons into wJoyHeld, and which are new into
@@ -1290,15 +756,103 @@ PrintText:
     inc de
     jr PrintText
 
+; PrintAt: like PrintText, but the screen position comes as row b, column c.
+PrintAt:
+    ld h, 0
+    ld l, b
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl              ; hl = row * 32
+    ld a, c
+    ADD_A_TO_HL
+    ld a, h
+    add a, HIGH(SCRN0)
+    ld h, a                 ; + $9800
+    jr PrintText
+
+; TwoDigits: a = 0-99. Returns b = tens digit tile, a = ones digit tile.
+TwoDigits:
+    ld b, TILE_DIGIT0
+.tens
+    cp 10
+    jr c, .ones
+    sub 10
+    inc b
+    jr .tens
+.ones
+    add a, TILE_DIGIT0
+    ret
+
+; PrintBCD: a = two decimal digits (BCD, e.g. $42). Writes 2 digit tiles at hl.
+PrintBCD:
+    push af
+    swap a                  ; first digit is in the high 4 bits
+    and $0F
+    add a, TILE_DIGIT0
+    ld [hli], a
+    pop af
+    and $0F
+    add a, TILE_DIGIT0
+    ld [hli], a
+    ret
+
+; PrintScore: write a score (de = its 2 BCD bytes, low byte first) as 5 digit
+; tiles at hl. Scores are stored divided by 10, so the 5th digit is always 0.
+PrintScore:
+    inc de
+    ld a, [de]              ; high byte: thousands and hundreds of (score / 10)
+    call PrintBCD
+    dec de
+    ld a, [de]
+    call PrintBCD
+    ld a, TILE_DIGIT0
+    ld [hli], a
+    ret
+
+; PrintHex: a = a byte. Writes it as 2 hex digit tiles (0-9, A-F) at hl.
+PrintHex:
+    push af
+    swap a
+    call .digit
+    pop af
+.digit
+    and $0F
+    push hl
+    ld hl, HexDigits
+    ADD_A_TO_HL
+    ld a, [hl]
+    pop hl
+    ld [hli], a
+    ret
+HexDigits: db "0123456789ABCDEF"
+
 ; =============================================================================
 ; Text (letters become tile numbers through charmap.inc)
 ; =============================================================================
 TextTitle:      db "KERNEL DROP", $FF
 TextSeries:     db "KETTLE CLASSICS", $FF
 TextPressStart: db "PRESS START", $FF
+TextStory:      db "STORY", $FF
+TextEndlessMenu:db "ENDLESS", $FF
+TextHi:         db "HI ", $FF
+TextScore:      db "SCORE ", $FF
+; Score bar: stage number goes at column 6, score at column 15.
+TextHud:        db "STAGE 00 SCORE 00000"
 ; Message line texts are 12 characters so they fully replace each other.
 TextPause:       db "   PAUSE    ", $FF
 TextBlank12:     db "            ", $FF
 TextAllSprouted: db "ALL SPROUTED", $FF
 TextStageClear:  db "STAGE CLEAR ", $FF
 TextTryAgain:    db " TRY AGAIN  ", $FF
+TextGameOver:    db " GAME OVER  ", $FF
+TextKipSprouted: db "KIP SPROUTED", $FF
+TextPressStart12:db "PRESS START ", $FF
+TextStageNum:    db "  STAGE 00  ", $FF   ; Endless: digits filled in at 8-9
+TextEndless:     db "  ENDLESS   ", $FF
+
+INCLUDE "title.asm"
+INCLUDE "play.asm"
+INCLUDE "sound.asm"
+INCLUDE "lab.asm"

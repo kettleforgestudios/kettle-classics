@@ -5,7 +5,7 @@ They follow Kip, a popcorn kernel, from seed to POP:
 
 | System (Kernelcade label) | Game | Genre | Status |
 |---|---|---|---|
-| Pocket | *Kernel Drop*: water the seeds just right | arcade / timing | **in progress** |
+| Pocket | *Kernel Drop*: water the seeds just right | arcade / timing | **done** (Story, Endless, Lab) |
 | Pocket Color | *Silk Maze* | maze adventure | planned |
 | 8-Bit | *Kip's Field Run* | platformer | planned |
 | 16-Bit GEN | *Hull Breach* | shoot-'em-up | planned |
@@ -21,6 +21,7 @@ hidden Lab mode for testing. The built games are bundled in Kernelcade as built-
 pocket/kernel-drop/   Kernel Drop (Game Boy, RGBDS assembly; art/make_gfx.py turns ASCII art into tiles)
 shared/               Kip's style guide, art and sound shared across games
 tools/gbtest/         headless test runner (uses SameBoy, MIT, test-only)
+shared/sound/         Kip's motif (his "voice"), reused by every game
 ```
 
 ## Building Kernel Drop

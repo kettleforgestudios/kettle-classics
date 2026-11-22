@@ -10,6 +10,8 @@
 //   shot:<frame>:<file.ppm>           save the screen after <frame>
 //   expect:<frame>:<addr hex>:<byte hex>  fail unless memory[addr] == byte
 //   expectnot:<frame>:<addr hex>:<byte hex>
+//   poke:<frame>:<addr hex>:<byte hex>    write a byte into memory after <frame>
+//                                     (lets a test jump ahead, e.g. to a later stage)
 //   wav:<file.wav>                    record the game's sound to a WAV file
 // Exit code 0 = all expectations passed.
 #include "gb.h"
@@ -142,6 +144,9 @@ int main(int argc, char **argv) {
                 bool ok = got == value;
                 printf("frame %d: [%04X] = %02X, expected %02X: %s\n", frame, addr, got, value, ok ? "PASS" : "FAIL");
                 failures += !ok;
+            } else if (sscanf(argv[i], "poke:%d:%x:%x", &at, &addr, &value) == 3 && at == frame) {
+                GB_write_memory(gb, (uint16_t)addr, (uint8_t)value);
+                printf("frame %d: poke [%04X] = %02X\n", frame, addr, value);
             } else if (sscanf(argv[i], "expectnot:%d:%x:%x", &at, &addr, &value) == 3 && at == frame) {
                 uint8_t got = GB_safe_read_memory(gb, (uint16_t)addr);
                 bool ok = got != value;

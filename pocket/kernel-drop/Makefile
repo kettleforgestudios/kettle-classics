@@ -12,6 +12,10 @@ kernel-drop.gb: $(OBJS)
 	# Header: title + checksums only ("-f hg"). No Nintendo logo on purpose.
 	$(FIX) -f hg -t "KERNEL DROP" -p 0xFF $@
 
+# main.asm pulls in the other .asm files with INCLUDE, so any change rebuilds it.
+build/main.o: src/main.asm src/title.asm src/play.asm src/sound.asm src/lab.asm \
+              src/hardware.inc src/charmap.inc src/notes.inc
+
 build/%.o: src/%.asm src/hardware.inc src/charmap.inc
 	@mkdir -p build
 	$(ASM) -Weverything -I src/ -o $@ $<
