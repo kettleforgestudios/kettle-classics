@@ -8,7 +8,8 @@ Status: build steps 1-4 done, Nov 22 2026. Playable round: six seeds with thirst
 soil drying, sprout / wilt / flood, moisture numbers (Select), result message, Start to
 replay. Tuning (first pass): water 0-63, start 16, drop +4, dries 1 per 20 frames, zone
 24-47 for 4 s sprouts, 3 s at zero wilts, 2.5 s above zone floods, 4 of 6 clears.
-Next: step 5, sound.
+Step 5 (sound effects) done: start chirp, pause blip, tired "phew", wilt droop,
+splash and flood noise, sprout tune, win / lose tunes. Music still to come.
 Home: `kettleforgestudios/kettle-classics`, folder `pocket/kernel-drop/`. The built game
 is copied into Kernelcade as a bundled original game (allowed by Kernelcade's ROM rule).
 
@@ -101,7 +102,7 @@ Genre: arcade timing / juggling game. Session: a polished 5-10 minute micro-game
 2. ~~Title screen and Kip sprite.~~ Done.
 3. ~~Cloud movement (D-pad, height) and water drops (A / B).~~ Done.
 4. ~~Seeds with thirst meters, drying, sprout / wilt / flood rules.~~ Done.
-5. Sound effects and music.
+5. Sound effects (~~done~~) and music.
 6. Stages and twists (sun, wind, crows, puddles), Story and Endless modes.
 7. Lab mode.
 8. Polish, then bundle into Kernelcade as the built-in Pocket game.

@@ -4,6 +4,24 @@
 DEF rP1    EQU $FF00 ; joypad: pick the D-pad or the buttons, then read them
 DEF rIF    EQU $FF0F ; which interrupts are waiting
 DEF rNR52  EQU $FF26 ; sound on/off
+; Sound channel 1 (square wave with pitch sweep)
+DEF rNR10  EQU $FF10 ; sweep: speed, up/down, amount
+DEF rNR11  EQU $FF11 ; duty (wave shape) and length
+DEF rNR12  EQU $FF12 ; volume envelope: start volume, fade up/down, fade speed
+DEF rNR13  EQU $FF13 ; pitch, low 8 bits
+DEF rNR14  EQU $FF14 ; pitch, high 3 bits + bit 7 = start the note
+; Sound channel 2 (square wave, no sweep)
+DEF rNR21  EQU $FF16
+DEF rNR22  EQU $FF17
+DEF rNR23  EQU $FF18
+DEF rNR24  EQU $FF19
+; Sound channel 4 (noise)
+DEF rNR41  EQU $FF20 ; length
+DEF rNR42  EQU $FF21 ; volume envelope
+DEF rNR43  EQU $FF22 ; noise "pitch" and texture
+DEF rNR44  EQU $FF23 ; bit 7 = start
+DEF rNR50  EQU $FF24 ; master volume (left/right)
+DEF rNR51  EQU $FF25 ; which channels go to the left/right speakers
 DEF rLCDC  EQU $FF40 ; screen control (on/off, which layers are shown)
 DEF rSTAT  EQU $FF41 ; screen status
 DEF rSCY   EQU $FF42 ; background scroll Y

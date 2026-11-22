@@ -52,6 +52,8 @@ for f in 250 260 270 280 290 350 410 470 530 590; do water_presses="$water_press
   "press:200:T:2" $water_presses \
   "expectnot:248:C039:10" \
   "press:400:S:2" "shot:500:$out/kernel-drop-seeds.ppm" \
+  "expect:300:C06E:00" "expectnot:300:FF26:70" \
+  "wav:$out/kernel-drop-sound.wav" \
   "expect:700:C038:01" \
   "expect:820:C050:01" "expect:820:C051:01" "expect:820:C020:02" \
   "shot:820:$out/kernel-drop-result.ppm" \
@@ -62,7 +64,8 @@ for f in 250 260 270 280 290 350 410 470 530 590; do water_presses="$water_press
   "press:200:T:2" \
   "press:220:D:30" \
   "press:260:B:40" "press:320:B:40" "press:380:B:40" "press:440:B:40" \
-  "expect:600:C038:03" "shot:600:$out/kernel-drop-flooded.ppm"
+  "expect:600:C038:03" "shot:600:$out/kernel-drop-flooded.ppm" \
+  "wav:$out/kernel-drop-flood.wav"
 
 for name in title rain pour pause seeds result flooded; do
   python3 "$here/ppm2png.py" "$out/kernel-drop-$name.ppm" "$out/kernel-drop-$name.png" 3

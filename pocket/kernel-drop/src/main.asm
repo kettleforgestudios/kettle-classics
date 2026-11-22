@@ -2,6 +2,8 @@
 ; Kernel Drop - Chapter 1 of Kettle Classics (Pocket / Game Boy)
 ; (c) 2026 Kettle Forge Studios. Original code, art and sound.
 ;
+; Step 5: sound effects. Events queue a sound (QUEUE_SFX); once per frame
+;   UpdateSound plays whatever was queued and steps through any short tune.
 ; Step 3: seeds.
 ;   Six seeds sit on the soil, each with a thirst gauge above it. The soil
 ;   slowly dries them out. Keep a seed's water in its "just right" zone (the
@@ -65,6 +67,28 @@ DEF WILT_TIME   EQU 180    ; frames at zero water before wilting (3 seconds)
 DEF FLOOD_TIME  EQU 150    ; frames above the zone before flooding (2.5 s)
 DEF GOOD_RESULT EQU 4      ; sprout at least 4 of 6 to clear the stage
 
+; --- Sound effects --------------------------------------------------------------
+; Each event sets one bit in wSfxQueue. Several can happen in one frame; they
+; are all played at the end of the frame (see UpdateSound).
+DEF SFXB_START  EQU 0      ; game starts       (channel 1: rising chirp)
+DEF SFXB_PAUSE  EQU 1      ; pause / unpause   (channel 1: blip)
+DEF SFXB_TIRED  EQU 2      ; cloud gets tired  (channel 1: falling "phew")
+DEF SFXB_WILT   EQU 3      ; a seed wilts      (channel 1: low droop)
+DEF SFXB_SPLASH EQU 4      ; drop waters a seed (channel 4: soft noise)
+DEF SFXB_FLOOD  EQU 5      ; a seed floods     (channel 4: long splash)
+DEF SFXB_SPROUT EQU 6      ; a seed sprouts    (channel 2: 3-note tune)
+DEF SFXB_RESULT EQU 7      ; round over        (channel 2: happy or sad tune)
+
+; QUEUE_SFX SFXB_xxx: ask for a sound. Keeps every register (even a and flags)
+; so it can be dropped into the middle of any routine.
+MACRO QUEUE_SFX
+    push af
+    ld a, [wSfxQueue]
+    set \1, a
+    ld [wSfxQueue], a
+    pop af
+ENDM
+
 ; Seed states
 DEF SEED_GROWING  EQU 0
 DEF SEED_SPROUTED EQU 1
@@ -115,6 +139,9 @@ wMsgPtr::      dw  ; $C053: which text the message line shows
 wBgDirty::     db  ; $C055: 1 = seed tiles need copying next VBlank
 ; Tiles waiting to be copied to the screen at the next VBlank, per seed:
 wSeedTiles::   ds NUM_SEEDS * 4 ; $C056: tens digit, ones digit, gauge, seed
+wSfxQueue::    db  ; $C06E: sounds asked for this frame (one bit each)
+wTunePtr::     dw  ; $C06F: next note of the tune playing on channel 2
+wTuneTimer::   db  ; $C071: frames left on the current note (0 = no tune)
 wStateEnd::
 
 ; A copy of the sprite table. We edit it any time; the VBlank interrupt copies
@@ -148,8 +175,13 @@ Start:
     di                      ; no interrupts while we set things up
     ld sp, $E000            ; stack at the top of work RAM
 
-    xor a
-    ldh [rNR52], a          ; sound off for now (sound comes in a later step)
+    ; Sound on: master volume full, every channel to both speakers.
+    ld a, $80
+    ldh [rNR52], a          ; bit 7 = sound hardware on (must be first)
+    ld a, $77
+    ldh [rNR50], a          ; left and right volume 7 (the max)
+    ld a, $FF
+    ldh [rNR51], a
 
     call ScreenOff
 
@@ -220,9 +252,11 @@ MainLoop:
     cp STATE_PLAY
     jr z, .play
     call UpdateTitle
-    jr MainLoop
+    jr .sound
 .play
     call UpdatePlay
+.sound
+    call UpdateSound
     jr MainLoop
 
 ; =============================================================================
@@ -289,6 +323,7 @@ StartGame:
     ld [wGameOver], a
     ld [wSprouted], a
     ld [wDryTick], a
+    ld [wTuneTimer], a      ; stop any tune still playing from last round
     ld hl, wDrops
     ld bc, MAX_DROPS * 2
     call MemFill
@@ -298,6 +333,7 @@ StartGame:
     call DrawMessage        ; screen is off, so we can draw right away
     call BuildSeedTiles
     call CopySeedTiles
+    QUEUE_SFX SFXB_START
     jp ScreenOn
 
 ; ResetSeeds: every seed starts growing, a little dry.
@@ -343,6 +379,7 @@ UpdatePlay:
     jr nz, .showPause
     ld de, TextBlank12
 .showPause
+    QUEUE_SFX SFXB_PAUSE
     call SetMessage
 .noPause
     ld a, [wPaused]
@@ -445,6 +482,7 @@ MakeRain:
     ld [hl], a
     ld a, TIRED_TIME
     ld [wTiredTimer], a
+    QUEUE_SFX SFXB_TIRED
     ret
 .keepPouring
     and POUR_EVERY - 1      ; one drop every POUR_EVERY frames
@@ -602,6 +640,154 @@ DrawMessage:
     jp PrintText
 
 ; =============================================================================
+; Sound
+; =============================================================================
+; The Game Boy's sound chip plays on its own once a note is started: we just
+; write a few registers (pitch, volume, how it fades) and it does the rest.
+; Pitch numbers: frequency in Hz = 131072 / (2048 - pitch).
+
+; UpdateSound: once per frame. Play queued effects, then step the tune.
+UpdateSound:
+    ld a, [wSfxQueue]
+    and a
+    jr z, .tune
+    ld b, a
+    xor a
+    ld [wSfxQueue], a
+    ; Noise channel (later lines win if two happen in the same frame).
+    bit SFXB_SPLASH, b
+    ld hl, SfxSplash
+    call nz, PlayNoise
+    bit SFXB_FLOOD, b
+    ld hl, SfxFlood
+    call nz, PlayNoise
+    ; Channel 1 effects, least to most important.
+    bit SFXB_PAUSE, b
+    ld hl, SfxPause
+    call nz, PlaySquare
+    bit SFXB_START, b
+    ld hl, SfxStart
+    call nz, PlaySquare
+    bit SFXB_TIRED, b
+    ld hl, SfxTired
+    call nz, PlaySquare
+    bit SFXB_WILT, b
+    ld hl, SfxWilt
+    call nz, PlaySquare
+    ; Channel 2 tunes: the round result beats a sprout.
+    bit SFXB_SPROUT, b
+    ld hl, TuneSprout
+    call nz, StartTune
+    bit SFXB_RESULT, b
+    jr z, .tune
+    ld a, [wSprouted]
+    cp GOOD_RESULT
+    ld hl, TuneWin
+    jr nc, .start
+    ld hl, TuneLose
+.start
+    call StartTune
+
+.tune
+    ; Step the tune on channel 2: count down this note, then start the next.
+    ld a, [wTuneTimer]
+    and a
+    ret z                   ; no tune playing
+    dec a
+    ld [wTuneTimer], a
+    ret nz                  ; current note still going
+    ld a, [wTunePtr]
+    ld l, a
+    ld a, [wTunePtr + 1]
+    ld h, a
+    ; fall through to PlayNote
+
+; PlayNote: hl = a note (pitch low, pitch high, frames). Frames 0 = tune over.
+PlayNote:
+    ld a, [hli]
+    ld c, a                 ; pitch low
+    ld a, [hli]
+    ld d, a                 ; pitch high
+    ld a, [hli]             ; how many frames
+    and a
+    ret z                   ; end of tune (wTuneTimer stays 0)
+    ld [wTuneTimer], a
+    ld a, l
+    ld [wTunePtr], a
+    ld a, h
+    ld [wTunePtr + 1], a
+    ld a, $80
+    ldh [rNR21], a          ; 50% square wave: a clean "beep" tone
+    ld a, $D3
+    ldh [rNR22], a          ; volume 13, fading out gently
+    ld a, c
+    ldh [rNR23], a
+    ld a, d
+    or $80                  ; bit 7 = start the note
+    ldh [rNR24], a
+    ret
+
+; StartTune: hl = first note. Keeps register b (UpdateSound needs it).
+StartTune:
+    jr PlayNote
+
+; PlaySquare: hl = 5 bytes for channel 1 (sweep, duty, envelope, pitch lo, hi).
+PlaySquare:
+    ld c, LOW(rNR10)
+    ld e, 5
+    jr CopyToSound
+
+; PlayNoise: hl = 4 bytes for channel 4 (length, envelope, texture, start).
+PlayNoise:
+    ld c, LOW(rNR41)
+    ld e, 4
+CopyToSound:
+    ld a, [hli]
+    ldh [c], a              ; write to $FF00 + c
+    inc c
+    dec e
+    jr nz, CopyToSound
+    ret
+
+; --- Effect data ---
+;                sweep duty  envel pitch lo/hi (bit 7 of hi = start)
+SfxStart:   db $15, $80, $F2, $00, $86   ; pitch rises quickly
+SfxPause:   db $00, $80, $A1, $83, $87   ; short high blip
+SfxTired:   db $1D, $80, $A3, $00, $87   ; pitch falls: "phew"
+SfxWilt:    db $2F, $40, $C4, $40, $86   ; slow low droop
+;                len   envel texture start
+SfxSplash:  db $00, $41, $24, $80        ; quiet short hiss
+SfxFlood:   db $00, $F5, $46, $80        ; loud long splash
+
+; --- Tunes: each note = pitch low, pitch high, frames; 0,0,0 ends ---
+DEF NOTE_C4 EQU $60C
+DEF NOTE_E4 EQU $673
+DEF NOTE_G4 EQU $6B2
+DEF NOTE_C5 EQU $705
+DEF NOTE_E5 EQU $739
+DEF NOTE_G5 EQU $759
+DEF NOTE_C6 EQU $783
+MACRO NOTE
+    db LOW(\1), HIGH(\1), \2
+ENDM
+TuneSprout:
+    NOTE NOTE_E5, 4
+    NOTE NOTE_G5, 4
+    NOTE NOTE_C6, 10
+    db 0, 0, 0
+TuneWin:
+    NOTE NOTE_C5, 7
+    NOTE NOTE_E5, 7
+    NOTE NOTE_G5, 7
+    NOTE NOTE_C6, 20
+    db 0, 0, 0
+TuneLose:
+    NOTE NOTE_G4, 10
+    NOTE NOTE_E4, 10
+    NOTE NOTE_C4, 24
+    db 0, 0, 0
+
+; =============================================================================
 ; Seeds
 ; =============================================================================
 
@@ -637,6 +823,7 @@ WaterAt:
     ld a, WATER_MAX
 .store
     ld [hl], a
+    QUEUE_SFX SFXB_SPLASH
     ret
 
 ; SeedAddress: hl = wSeeds + c * 8.
@@ -697,6 +884,7 @@ UpdateSeeds:
     cp WILT_TIME
     jr c, .next
     ld a, SEED_WILTED
+    QUEUE_SFX SFXB_WILT
     jr .setState
 .notDry
     inc hl                  ; S_DRY
@@ -713,6 +901,7 @@ UpdateSeeds:
     cp FLOOD_TIME
     jr c, .next
     ld a, SEED_FLOODED
+    QUEUE_SFX SFXB_FLOOD
     jr .setState
 .notSoggy
     push hl
@@ -732,6 +921,7 @@ UpdateSeeds:
     inc a
     ld [wSprouted], a
     ld a, SEED_SPROUTED
+    QUEUE_SFX SFXB_SPROUT
 .setState
     pop hl
     ld [hl], a              ; S_STATE
@@ -754,6 +944,7 @@ UpdateSeeds:
     ret nz
     ld a, 1
     ld [wGameOver], a
+    QUEUE_SFX SFXB_RESULT
     ld a, [wSprouted]
     cp NUM_SEEDS
     ld de, TextAllSprouted

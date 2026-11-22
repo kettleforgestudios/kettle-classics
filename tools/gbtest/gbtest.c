@@ -10,6 +10,7 @@
 //   shot:<frame>:<file.ppm>           save the screen after <frame>
 //   expect:<frame>:<addr hex>:<byte hex>  fail unless memory[addr] == byte
 //   expectnot:<frame>:<addr hex>:<byte hex>
+//   wav:<file.wav>                    record the game's sound to a WAV file
 // Exit code 0 = all expectations passed.
 #include "gb.h"
 #include <stdio.h>
@@ -17,6 +18,35 @@
 #include <string.h>
 
 static uint32_t pixels[256 * 224];
+
+// --- Sound recording (optional) -----------------------------------------------
+// SameBoy hands us one stereo sample at a time; we collect them and write a
+// plain 16-bit WAV file at the end.
+#define SAMPLE_RATE 44100
+static int16_t *audio;
+static size_t audioCount, audioCap;
+static void onSample(GB_gameboy_t *gb, GB_sample_t *s) {
+    (void)gb;
+    if (audioCount + 2 > audioCap) {
+        audioCap = audioCap ? audioCap * 2 : 1 << 20;
+        audio = realloc(audio, audioCap * sizeof *audio);
+    }
+    audio[audioCount++] = s->left;
+    audio[audioCount++] = s->right;
+}
+static void put32(FILE *f, uint32_t v) { fwrite(&v, 4, 1, f); }
+static void put16(FILE *f, uint16_t v) { fwrite(&v, 2, 1, f); }
+static void saveWav(const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) { perror(path); return; }
+    uint32_t bytes = (uint32_t)(audioCount * 2);
+    fwrite("RIFF", 1, 4, f); put32(f, 36 + bytes); fwrite("WAVEfmt ", 1, 8, f);
+    put32(f, 16); put16(f, 1); put16(f, 2); put32(f, SAMPLE_RATE);
+    put32(f, SAMPLE_RATE * 4); put16(f, 4); put16(f, 16);
+    fwrite("data", 1, 4, f); put32(f, bytes);
+    fwrite(audio, 2, audioCount, f);
+    fclose(f);
+}
 static uint32_t rgb(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b) {
     (void)gb;
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
@@ -80,6 +110,15 @@ int main(int argc, char **argv) {
     GB_load_rom_from_buffer(gb, rom, romSize);
     GB_reset(gb);
 
+    const char *wavPath = NULL;
+    for (int i = 4; i < argc; i++) {
+        if (strncmp(argv[i], "wav:", 4) == 0) wavPath = argv[i] + 4;
+    }
+    if (wavPath) {
+        GB_set_sample_rate(gb, SAMPLE_RATE);
+        GB_apu_set_sample_callback(gb, onSample);
+    }
+
     int failures = 0;
     for (int frame = 1; frame <= frames; frame++) {
         // Apply button presses that are active on this frame.
@@ -110,6 +149,10 @@ int main(int argc, char **argv) {
                 failures += !ok;
             }
         }
+    }
+    if (wavPath) {
+        saveWav(wavPath);
+        printf("saved %s\n", wavPath);
     }
     GB_free(gb);
     free(gb);
