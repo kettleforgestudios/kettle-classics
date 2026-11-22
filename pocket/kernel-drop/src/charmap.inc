@@ -1,0 +1,16 @@
+; Maps text characters to font tile numbers (see gfx.asm).
+CHARMAP " ", 0
+CHARMAP "A", 1
+CHARMAP "C", 2
+CHARMAP "D", 3
+CHARMAP "E", 4
+CHARMAP "I", 5
+CHARMAP "K", 6
+CHARMAP "L", 7
+CHARMAP "N", 8
+CHARMAP "O", 9
+CHARMAP "P", 10
+CHARMAP "R", 11
+CHARMAP "S", 12
+CHARMAP "T", 13
+DEF KIP_FIRST_TILE EQU 14

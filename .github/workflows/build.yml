@@ -1,0 +1,80 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to publish the "kernel-drop-latest" download
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RGBDS_VERSION: v1.0.4    # MIT, https://github.com/gbdev/rgbds
+  SAMEBOY_VERSION: v1.0.5  # MIT, used only to test (never bundled)
+
+jobs:
+  pocket:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache RGBDS
+        id: rgbds-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/rgbds
+          key: rgbds-${{ env.RGBDS_VERSION }}
+
+      - name: Build RGBDS
+        if: steps.rgbds-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bison libpng-dev
+          git clone --depth 1 --branch "$RGBDS_VERSION" https://github.com/gbdev/rgbds ~/rgbds
+          make -C ~/rgbds -j"$(nproc)" rgbasm rgblink rgbfix Q=
+
+      - name: Build Kernel Drop
+        run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/
+
+      - name: Check header (no Nintendo logo)
+        run: |
+          python3 - <<'EOF'
+          d = open("pocket/kernel-drop/kernel-drop.gb", "rb").read()
+          assert all(b == 0 for b in d[0x104:0x134]), "logo area must stay empty"
+          chk = 0
+          for b in d[0x134:0x14D]:
+              chk = (chk - b - 1) & 0xFF
+          assert d[0x14D] == chk, "bad header checksum"
+          print("header OK, size", len(d))
+          EOF
+
+      - name: Test in SameBoy (headless)
+        run: |
+          git clone --depth 1 --branch "$SAMEBOY_VERSION" https://github.com/LIJI32/SameBoy ~/SameBoy
+          SAMEBOY=$HOME/SameBoy RGBDS=$HOME/rgbds/ tools/gbtest/run.sh
+
+      - name: Upload ROM and screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-drop-${{ github.run_number }}
+          path: |
+            pocket/kernel-drop/kernel-drop.gb
+            build/test/*.png
+
+      - name: Publish latest download
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp pocket/kernel-drop/kernel-drop.gb "kernel-drop-build-${{ github.run_number }}.gb"
+          gh release delete kernel-drop-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create kernel-drop-latest \
+            "kernel-drop-build-${{ github.run_number }}.gb" \
+            build/test/kernel-drop-title.png \
+            --title "Kernel Drop (latest build ${{ github.run_number }})" \
+            --notes "Built from ${{ github.sha }}. Original Kettle Forge Studios game for Pocket. Runs in Kernelcade and emulators that skip the boot ROM." \
+            --prerelease
