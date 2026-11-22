@@ -4,7 +4,8 @@ Original Kettle Forge Studios game for the **Pocket** (Game Boy) system. Chapter
 kernel's journey (seed → field → harvest → silo → kettle → POP). Working titles and names
 are placeholders.
 
-Status: step 1 done (title screen with Kip, A = hop), Nov 22 2026.
+Status: steps 1-2 done (title screen; rain cloud: move, height spread, drop, pour,
+tired cooldown, pause, moisture-view toggle), Nov 22 2026. Next: step 3, seeds.
 Home: `kettleforgestudios/kettle-classics`, folder `pocket/kernel-drop/`. The built game
 is copied into Kernelcade as a bundled original game (allowed by Kernelcade's ROM rule).
 
@@ -94,8 +95,8 @@ Genre: arcade timing / juggling game. Session: a polished 5-10 minute micro-game
 ## Build steps
 
 1. ~~Shared repo + toolchain + "hello" ROM that boots in SameBoy (CI builds it).~~ Done.
-2. Title screen and Kip sprite.
-3. Cloud movement (D-pad, height) and water drops (A / B).
+2. ~~Title screen and Kip sprite.~~ Done.
+3. ~~Cloud movement (D-pad, height) and water drops (A / B).~~ Done.
 4. Seeds with thirst meters, drying, sprout / wilt / flood rules.
 5. Sound effects and music.
 6. Stages and twists (sun, wind, crows, puddles), Story and Endless modes.

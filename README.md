@@ -18,7 +18,7 @@ hidden Lab mode for testing. The built games are bundled in Kernelcade as built-
 ## Layout
 
 ```
-pocket/kernel-drop/   Kernel Drop (Game Boy, RGBDS assembly)
+pocket/kernel-drop/   Kernel Drop (Game Boy, RGBDS assembly; art/make_gfx.py turns ASCII art into tiles)
 shared/               Kip's style guide, art and sound shared across games
 tools/gbtest/         headless test runner (uses SameBoy, MIT, test-only)
 ```

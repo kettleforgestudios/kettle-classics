@@ -12,6 +12,7 @@ DEF rLY    EQU $FF44 ; which screen line is being drawn right now (0-153)
 DEF rDMA   EQU $FF46 ; starts a fast copy of sprite data into the sprite table
 DEF rBGP   EQU $FF47 ; background palette (4 shades)
 DEF rOBP0  EQU $FF48 ; sprite palette 0
+DEF rOBP1  EQU $FF49 ; sprite palette 1
 DEF rIE    EQU $FFFF ; which interrupts are allowed
 
 DEF IEF_VBLANK EQU %00000001 ; the "screen finished drawing" interrupt
@@ -21,6 +22,9 @@ DEF LCDCF_ON     EQU %10000000 ; screen on
 DEF LCDCF_BLK01  EQU %00010000 ; tiles live at $8000 (shared by background and sprites)
 DEF LCDCF_OBJON  EQU %00000010 ; sprites on
 DEF LCDCF_BGON   EQU %00000001 ; background on
+
+; Sprite flag bits (4th byte of each sprite)
+DEF OAMF_PAL1    EQU %00010000 ; use sprite palette 1 instead of 0
 
 DEF VRAM_TILES   EQU $8000 ; where tile pictures go
 DEF SCRN0        EQU $9800 ; background map: 32x32 tiles, each byte = which tile to show
