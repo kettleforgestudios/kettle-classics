@@ -5,7 +5,8 @@ kernel's journey (seed → field → harvest → silo → kettle → POP). Worki
 are placeholders.
 
 Status (Nov 22 2026): **complete (version 1.0 candidate)**. Build steps 1-7 are done; step 8
-(polish) has had a first pass; bundling into Kernelcade is the last step.
+(polish) has had a first pass. Bundled into Kernelcade (Nov 22 2026, from f1458ab); the only thing
+left is a play-test on the Nova for difficulty.
 What's in:
 - **Story mode:** 6 stages. 1 First Rain (6 normal seeds), 2 Sunny Day (sun, thirsty seeds),
   3 Windy (wind, delicate seeds), 4 Crows, 5 Puddles (+ sun), 6 Kip Seed (sun + wind +
@@ -127,8 +128,9 @@ The final stage's Kip seed is the middle-right plot (seed 4 of 6, under the clou
 5. ~~Sound effects and music.~~ Done.
 6. ~~Stages and twists (sun, wind, crows, puddles), Story and Endless modes.~~ Done.
 7. ~~Lab mode.~~ Done.
-8. Polish (first pass done: play-test on the Nova for difficulty), then bundle into
-   Kernelcade as the built-in Pocket game.
+8. Polish (first pass done; still to do: play-test on the Nova for difficulty).
+9. ~~Bundle into Kernelcade as the built-in Pocket game.~~ Done (Nov 22 2026). After a change here,
+   run `tools/update_homebrew.sh` in the Kernelcade repo to copy the new ROM in.
 
 ## Open questions
 
