@@ -6,8 +6,8 @@ They follow Kip, a popcorn kernel, from seed to POP:
 | System (Kernelcade label) | Game | Genre | Status |
 |---|---|---|---|
 | Pocket | *Kernel Drop*: water the seeds just right | arcade / timing | **done** (Story, Endless, Lab; gentler First Rain stage) |
-| Pocket Color | [*Fields of Silk*](pocket-color/silk-maze/DESIGN.md) | field restoration / territory capture | Alpha 2 |
-| 8-Bit | *Kip's Field Run* | platformer | planned |
+| Pocket Color | Coming soon | To be decided | planned |
+| 8-Bit | [*Fields of Silk*](8-bit/fields-of-silk/DESIGN.md) | field restoration / territory capture | NES Alpha 1 |
 | 16-Bit GEN | *Hull Breach* | shoot-'em-up | planned |
 | 16-Bit | *Kettle Pop* (finale) | Mode 7 flyer / 2.5D showcase | planned |
 | Pocket 32 (bonus) | caramel-corn sequel | TBD | idea |
@@ -19,6 +19,7 @@ hidden Lab mode for testing. The built games are bundled in Kernelcade as built-
 
 ```
 pocket/kernel-drop/   Kernel Drop (Game Boy, RGBDS assembly; art/make_gfx.py turns ASCII art into tiles)
+8-bit/fields-of-silk/ Fields of Silk (NES, cc65 + Python-generated tile data)
 shared/               Kip's style guide, art and sound shared across games
 tools/gbtest/         headless test runner (uses SameBoy, MIT, test-only)
 shared/sound/         Kip's motif (his "voice"), reused by every game

@@ -40,15 +40,6 @@ jobs:
       - name: Build Kernel Drop
         run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/ KERNEL_DROP_BUILD="$GITHUB_RUN_NUMBER"
 
-      - name: Build Fields of Silk Alpha
-        run: make -C pocket-color/silk-maze RGBDS=$HOME/rgbds/
-
-      - name: Upload Fields of Silk ROM
-        uses: actions/upload-artifact@v4
-        with:
-          name: fields-of-silk-alpha-${{ github.run_number }}
-          path: pocket-color/silk-maze/fields-of-silk.gbc
-
       - name: Check header (no Nintendo logo)
         run: |
           python3 - <<'EOF'
@@ -87,3 +78,16 @@ jobs:
             --title "Kernel Drop (latest build ${{ github.run_number }})" \
             --notes "Built from ${{ github.sha }}. Original Kettle Forge Studios game for Pocket. Runs in Kernelcade and emulators that skip the boot ROM." \
             --prerelease
+
+  eight-bit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install NES toolchain
+        run: sudo apt-get update && sudo apt-get install -y cc65
+      - name: Build Fields of Silk
+        run: make -C 8-bit/fields-of-silk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fields-of-silk-nes-alpha-${{ github.run_number }}
+          path: 8-bit/fields-of-silk/fields-of-silk.nes
