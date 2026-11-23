@@ -27,7 +27,7 @@ The existing 20-device compatibility list and the Beta gate for external testing
 
 ## Controller compatibility targets
 
-**Available for in-house testing:** PS4 DualShock 4, Xbox Series Wireless Controller, and 8BitDo Ultimate C. Record the exact Ultimate C variant and connection mode before testing. Track it separately from the Ultimate 2C Bluetooth target.
+**Available for in-house testing:** PS4 DualShock 4, Xbox Series Wireless Controller, and a burgundy 8BitDo collaboration controller (exact model and connection mode pending confirmation).
 
 These are provisional coverage picks. Reorder when reliable Android-specific usage data is available. Both peripheral lists are in addition to the 20 Android devices.
 
