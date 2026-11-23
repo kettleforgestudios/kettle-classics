@@ -40,6 +40,14 @@ jobs:
       - name: Build Kernel Drop
         run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/ KERNEL_DROP_BUILD="$GITHUB_RUN_NUMBER"
 
+      - name: Build Seed Room
+        run: make -C pocket-color/seed-room RGBDS=$HOME/rgbds/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seed-room-alpha-${{ github.run_number }}
+          path: pocket-color/seed-room/seed-room.gbc
+
       - name: Check header (no Nintendo logo)
         run: |
           python3 - <<'EOF'
