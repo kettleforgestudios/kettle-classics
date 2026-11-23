@@ -40,6 +40,15 @@ jobs:
       - name: Build Kernel Drop
         run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/ KERNEL_DROP_BUILD="$GITHUB_RUN_NUMBER"
 
+      - name: Build Fields of Silk Alpha
+        run: make -C pocket-color/silk-maze RGBDS=$HOME/rgbds/
+
+      - name: Upload Fields of Silk ROM
+        uses: actions/upload-artifact@v4
+        with:
+          name: fields-of-silk-alpha-${{ github.run_number }}
+          path: pocket-color/silk-maze/fields-of-silk.gbc
+
       - name: Check header (no Nintendo logo)
         run: |
           python3 - <<'EOF'

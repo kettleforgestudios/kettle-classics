@@ -6,7 +6,7 @@ They follow Kip, a popcorn kernel, from seed to POP:
 | System (Kernelcade label) | Game | Genre | Status |
 |---|---|---|---|
 | Pocket | *Kernel Drop*: water the seeds just right | arcade / timing | **done** (Story, Endless, Lab; gentler First Rain stage) |
-| Pocket Color | [*Fields of Silk*](pocket-color/silk-maze/DESIGN.md) | field restoration / territory capture | prototype design |
+| Pocket Color | [*Fields of Silk*](pocket-color/silk-maze/DESIGN.md) | field restoration / territory capture | Alpha 1 |
 | 8-Bit | *Kip's Field Run* | platformer | planned |
 | 16-Bit GEN | *Hull Breach* | shoot-'em-up | planned |
 | 16-Bit | *Kettle Pop* (finale) | Mode 7 flyer / 2.5D showcase | planned |
