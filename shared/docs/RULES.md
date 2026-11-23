@@ -24,3 +24,7 @@
 - Before release, record the internal ROM build and check the same Lab case in flat 2D and each supported Kernelcade depth mode. Compare against original hardware where bootable or an independent emulator. Keep pass criteria in the game's design notes.
 - Diagnostics exist to improve the games and Kernelcade performance. Keep Lab entry, overlays, counters, input capture, report prompts, and export controls out of normal play. Diagnostic measurements run only when explicitly enabled in an internal test session. No background collection or automatic uploads.
 - Make Lab and instrumentation compile-time options so final public ROMs can omit the code, assets, and data buffers entirely. Keep the matching instrumented ROM internally for regression testing. Smoke-test the exact public build with diagnostics excluded.
+
+## External testing gate
+
+- Before inviting anyone beyond the project owner, family, and friends to test Kernelcade or its bundled games, every console supported by the Kernelcade build under test must have one included Kettle Classics ROM at Beta or later. This applies to paid testers, outside volunteers, and public test builds.
