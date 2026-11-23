@@ -29,20 +29,50 @@ The existing 20-device compatibility list and the Beta gate for external testing
 
 **Available for in-house testing:** PS4 DualShock 4, Xbox Series Wireless Controller, and 8BitDo Ultimate 2 Wireless Controller (WUCHANG: Fallen Feathers Edition).
 
-These are provisional coverage picks. Reorder when reliable Android-specific usage data is available. Both peripheral lists are in addition to the 20 Android devices.
+## Combined compatibility list
 
-| Slot | Standalone gamepad | Phone-mounted controller |
-|---|---|---|
-| 1 | Xbox Wireless Controller (Series X/S) | Backbone One USB-C (2nd Gen) |
-| 2 | Xbox Wireless Controller (Bluetooth Xbox One revision) | Backbone Pro |
-| 3 | Sony DualSense | GameSir G8 Galileo |
-| 4 | Sony DualShock 4 | GameSir G8 Plus |
-| 5 | Nintendo Switch Pro Controller | GameSir X2s USB-C |
-| 6 | Nintendo Joy-Con (left and right) | GameSir X4 Aileron |
-| 7 | 8BitDo Ultimate 2C Bluetooth | Razer Kishi V3 |
-| 8 | 8BitDo Pro 2 Bluetooth | Razer Kishi V3 Ultra |
-| 9 | 8BitDo SN30 Pro Bluetooth | Razer Kishi V2 USB-C |
-| 10 | SteelSeries Stratus+ | abxylute S9 |
+The 40 targets below are ordered by estimated commonness for a U.S.-focused Android test program. Public usage data does not provide a directly comparable ranking across Android devices, handhelds, standalone gamepads, and phone-mounted controllers. Treat adjacent positions as approximate and revise when better data is available.
+
+1. Samsung Galaxy S25 Ultra
+2. Samsung Galaxy A16 5G
+3. Xbox Wireless Controller (Series X/S)
+4. Sony DualShock 4
+5. Sony DualSense
+6. Xbox Wireless Controller (Xbox One Bluetooth revision)
+7. Motorola Moto G (2025)
+8. Samsung Galaxy Tab A9+
+9. Google Pixel 10 Pro
+10. Nintendo Switch Pro Controller
+11. Nintendo Joy-Con (left and right)
+12. Motorola Razr (2025)
+13. OnePlus 13
+14. Backbone One USB-C (2nd Gen)
+15. Xiaomi Redmi Note 14 5G
+16. Nothing Phone (3a)
+17. 8BitDo Ultimate 2C Bluetooth
+18. GameSir G8 Galileo
+19. ASUS ROG Phone 9
+20. 8BitDo Pro 2 Bluetooth
+21. 8BitDo SN30 Pro Bluetooth
+22. GameSir G8 Plus
+23. Retroid Pocket 5
+24. Retroid Pocket 6
+25. Razer Kishi V2 USB-C
+26. GameSir X2s USB-C
+27. AYN Thor
+28. AYN Odin 2 Portal
+29. Retroid Pocket Flip 2
+30. Retroid Pocket Classic
+31. Backbone Pro
+32. MANGMI Air X
+33. Anbernic RG 477M
+34. Razer Kishi V3
+35. Razer Kishi V3 Ultra
+36. GameSir X4 Aileron
+37. Retroid Pocket Nova
+38. SteelSeries Stratus+
+39. AYANEO Pocket DMG
+40. abxylute S9
 
 - Check all buttons and axes supported by each controller, including D-pad diagonals, triggers, sticks and stick clicks, menu controls, simultaneous inputs, and rumble where available. Record connection mode and controller revision. Test reconnect, pause/resume, touch-to-gamepad handoff, and layout switching during play.
 - For phone mounts, record physical fit separately from input compatibility. Check USB-C alignment and clearance, cases and camera bumps, foldable fit, and passthrough charging when supported.
