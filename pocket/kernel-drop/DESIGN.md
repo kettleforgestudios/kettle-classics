@@ -8,10 +8,10 @@ Status (Nov 22 2026): **complete (version 1.0 candidate)**. Build steps 1-7 are 
 (polish) has had a first pass. Bundled into Kernelcade (Nov 22 2026, from f1458ab); the only thing
 left is a play-test on the Nova for difficulty.
 What's in:
-- **Story mode:** 6 stages. 1 First Rain (6 normal seeds), 2 Sunny Day (sun, thirsty seeds),
+- **Story mode:** 6 stages. 1 First Rain (5 widely spaced normal seeds with wider hit areas), 2 Sunny Day (sun, thirsty seeds),
   3 Windy (wind, delicate seeds), 4 Crows, 5 Puddles (+ sun), 6 Kip Seed (sun + wind +
   crows, Kip's seed must sprout). Each stage shows its name and a hint for 2 s (Start skips).
-  Clear = 4 of 6 sprouted (and Kip's seed on stage 6); a failed stage is retried.
+  Clear = 3 of 5 in First Rain, then 4 of 6 (and Kip's seed on stage 6); a failed stage is retried.
   The ending shows Kip sprouting, the Chapter 2 code and the score.
 - **Endless mode:** random seed types; twists unlock over stages 2-5, then mix randomly;
   the soil dries faster each stage. Game over keeps the high score (until power off).
@@ -22,7 +22,7 @@ What's in:
   crows (fly in below the cloud, land on a seed and steal it after 2.5 s of pecking; a drop
   scares them off; never Kip's seed), puddles (watering a seed that's above its zone spills 2
   water onto each neighbour).
-- **Score bar:** stage and score. 10 points per sprout, 50 bonus for all six.
+- **Score bar:** stage and score. 10 points per sprout, 50 bonus for sprouting every seed.
 - **Music:** title "Morning Field", play "Light Rain", ending "Sprouted" on the wave channel;
   Kip's motif when Kip's seed sprouts; the POP jingle on the ending.
 - **Lab mode:** hold Select + press Start on the title. Pages (Select + Start = next): button

@@ -46,7 +46,7 @@ run 600 \
   "press:210:A:3"   "expectnot:213:$(addr wHopTimer):00" \
   "press:220:D:2"   "expect:225:$(addr wMenu):01" \
   "press:230:U:2"   "expect:235:$(addr wMenu):00" \
-  "press:240:T:2"   "expect:245:$(addr wGameState):01" "expectnot:245:$(addr wIntroTimer):00" \
+  "press:240:T:2"   "expect:245:$(addr wGameState):01" "expectnot:245:$(addr wIntroTimer):00" "expect:245:$(addr wSeedCount):05" \
   "shot:250:$out/kernel-drop-intro.ppm" \
   "expect:365:$(addr wIntroTimer):00" "expectnot:380:$(addr wMusicTimer):00" \
   "press:370:R:30"  "expectnot:405:$(addr wCloudX):48" \
@@ -60,27 +60,27 @@ run 600 \
   "shot:560:$out/kernel-drop-pause.ppm" \
   "press:570:T:2"   "expect:575:$(addr wPaused):00"
 
-echo "== Run 2: water seed 3 just right until it sprouts; the others wilt"
+echo "== Run 2: water center seed just right until it sprouts; the others wilt"
 water_presses=""
 for f in 261 271 281 291 301 361 421 481 541 601; do water_presses="$water_presses press:$f:A:2"; done
 run 900 \
   "press:200:T:2" "press:210:T:2" $water_presses \
-  "expectnot:259:$(seed 3 1):10" \
+  "expectnot:259:$(seed 2 1):10" \
   "press:411:S:2" "shot:511:$out/kernel-drop-seeds.ppm" \
   "expect:311:$(addr wSfxQueue):00" "expectnot:311:FF26:70" \
   "wav:$out/kernel-drop-sound.wav" \
-  "expect:711:$(seed 3):01" \
+  "expect:711:$(seed 2):01" \
   "expect:831:$(addr wGameOver):01" "expect:831:$(addr wSprouted):01" \
   "expect:831:$(seed 0):02" "expect:831:$(addr wResult):00" \
   "shot:831:$out/kernel-drop-result.ppm" \
-  "press:851:T:2" "expect:856:$(addr wGameOver):00" "expect:856:$(seed 3):00"
+  "press:851:T:2" "expect:856:$(addr wGameOver):00" "expect:856:$(seed 2):00"
 
-echo "== Run 3: pour too much on seed 3 until it floods"
+echo "== Run 3: pour too much on the center seed until it floods"
 run 700 \
   "press:200:T:2" "press:210:T:2" \
   "press:231:D:30" \
   "press:271:B:40" "press:331:B:40" "press:391:B:40" "press:451:B:40" \
-  "expect:611:$(seed 3):03" "shot:611:$out/kernel-drop-flooded.ppm" \
+  "expect:611:$(seed 2):03" "shot:611:$out/kernel-drop-flooded.ppm" \
   "wav:$out/kernel-drop-flood.wav"
 
 # Jumping ahead: poke "round over, cleared" into memory, then press Start.
@@ -92,7 +92,7 @@ echo "== Run 4: Story stages with the sun, wind and crows; Kip's stage; the endi
 run 1100 \
   "press:200:T:2" "press:210:T:2" \
   $(skip_to 220 00) \
-  "expect:230:$(addr wStage):01" "expect:230:$(addr wStageFlags):01" \
+  "expect:230:$(addr wStage):01" "expect:230:$(addr wSeedCount):06" "expect:230:$(addr wStageFlags):01" \
   "press:240:T:2" "expect:560:$(addr wSunOut):01" "shot:560:$out/kernel-drop-sunny.ppm" \
   $(skip_to 570 01) \
   "expect:580:$(addr wStageFlags):02" "shot:582:$out/kernel-drop-windy-intro.ppm" \
@@ -122,7 +122,7 @@ run 420 \
 echo "== Run 6: Endless mode; game over keeps the high score"
 run 320 \
   "press:210:D:2" "press:220:T:2" \
-  "expect:225:$(addr wMode):01" "expect:225:$(addr wStage):00" \
+  "expect:225:$(addr wMode):01" "expect:225:$(addr wSeedCount):06" "expect:225:$(addr wStage):00" \
   "press:235:T:2" \
   "poke:245:$(addr wGameOver):01" "poke:245:$(addr wResult):01" "press:250:T:2" \
   "expect:255:$(addr wStage):01" "shot:260:$out/kernel-drop-endless.ppm" \
@@ -146,6 +146,14 @@ run 450 \
   "press:350:ST:2" "expect:355:$(addr wLabPage):03" \
   "shot:420:$out/kernel-drop-lab-timer.ppm" "expectnot:420:$(addr wLabFrames):00" \
   "press:430:ST:2" "expect:435:$(addr wGameState):00"
+
+echo "== Run 8: three sprouts clear First Rain"
+run 225 \
+  "press:200:T:2" "press:210:T:2" \
+  "poke:220:$(seed 0):01" "poke:220:$(seed 1):01" "poke:220:$(seed 2):01" \
+  "poke:220:$(seed 3):02" "poke:220:$(seed 4):02" \
+  "poke:220:$(addr wSprouted):03" \
+  "expect:225:$(addr wGameOver):01" "expect:225:$(addr wResult):01"
 
 for ppm in "$out"/*.ppm; do
   python3 "$here/ppm2png.py" "$ppm" "${ppm%.ppm}.png" 3

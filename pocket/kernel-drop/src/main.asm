@@ -233,6 +233,7 @@ wMenuDirty::   db
 wMode::        db  ; mode being played
 wStage::       db  ; stage number, counting from 0
 wStageFlags::  db  ; twists in this stage (TWISTB_xxx bits)
+wSeedCount::   db  ; active plots in this round
 wStageDry::    db  ; frames between dryings in this stage
 wKipSeed::     db  ; which seed is Kip's ($FF = none)
 wScore::       dw  ; score / 10, as 4 decimal digits (BCD: low byte first)

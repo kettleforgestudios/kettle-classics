@@ -62,7 +62,7 @@ EndlessTwists:
     db 0, %0001, %0011, %0111, %1111
 
 TextStage1: db " FIRST RAIN ", $FF
-TextHint1:  db "WATER 4 OF 6", $FF
+TextHint1:  db "WATER 3 OF 5", $FF
 TextStage2: db " SUNNY DAY  ", $FF
 TextHint2:  db "SUN DRIES UP", $FF
 TextStage3: db "   WINDY    ", $FF
@@ -119,6 +119,8 @@ StartStage:
 
 ; LoadStage: seed types, twists, drying speed and the stage's texts.
 LoadStage:
+    ld a, NUM_SEEDS
+    ld [wSeedCount], a
     ld a, [wMode]
     and a
     jr nz, .endless
@@ -126,7 +128,11 @@ LoadStage:
     ld hl, StoryStages
     ld a, [wStage]
     and a
-    jr z, .found
+    jr nz, .laterStory
+    ld a, 5                 ; First Rain gives the player more room to aim.
+    ld [wSeedCount], a
+    jr .found
+.laterStory
     ld b, a
     ld de, STAGE_SIZE
 .mul
@@ -999,6 +1005,25 @@ CrowTargetX:
 ;   Seed i sits at x = 8 + 24*i; its plot is the 16 pixels from x-4 to x+12.
 ;   (Drop centre = a + 4, minus the first plot's left edge (4) = a.)
 WaterAt:
+    ld b, a
+    ld a, [wSeedCount]
+    cp NUM_SEEDS
+    ld a, b
+    jr z, .standard
+    ; First Rain spaces plots 32 pixels apart and accepts 24 pixels per plot.
+    ; Shift by 4 so the wider hit area stays centered on the same tile.
+    add a, 4
+    ld c, 0
+.firstRainPlot
+    cp 32
+    jr c, .firstRainWidth
+    sub 32
+    inc c
+    jr .firstRainPlot
+.firstRainWidth
+    cp 24
+    jr .checkPlot
+.standard
     ld c, 0                 ; c = which seed
 .divide                     ; a / 24, counting in c, remainder in a
     cp 24
@@ -1008,10 +1033,12 @@ WaterAt:
     jr .divide
 .gotPlot
     cp PLOT_WIDTH
+.checkPlot
     ret nc                  ; landed between plots
-    ld a, c
-    cp NUM_SEEDS
-    ret nc                  ; right of the last plot
+    ld a, [wSeedCount]
+    cp c
+    ret c                   ; right of the last plot
+    ret z
     call SeedAddress        ; hl = this seed
     ld a, [hl]
     cp SEED_GROWING
@@ -1129,12 +1156,16 @@ UpdateSeeds:
     ld a, [wSeedIndex]
     inc a
     ld [wSeedIndex], a
-    cp NUM_SEEDS
-    jr c, .seed
+    ld b, a
+    ld a, [wSeedCount]
+    cp b
+    ld a, b
+    jr nz, .seed
 
     ; Every seed done? Then the round is over.
     ld hl, wSeeds
-    ld b, NUM_SEEDS
+    ld a, [wSeedCount]
+    ld b, a
 .count
     ld a, [hl]
     and a
@@ -1236,9 +1267,15 @@ FinishRound:
     xor a
     ld [wCrowState], a      ; the crow goes home
     ld [wResult], a
-    ; Cleared = at least GOOD_RESULT sprouts, and Kip's seed (if any) sprouted.
+    ; First Rain needs three sprouts. Later stages still need four.
+    ld a, [wSeedCount]
+    cp NUM_SEEDS
+    ld b, GOOD_RESULT
+    jr z, .compare
+    dec b
+.compare
     ld a, [wSprouted]
-    cp GOOD_RESULT
+    cp b
     jr c, .failed
     ld a, [wKipSeed]
     cp $FF
@@ -1256,10 +1293,12 @@ FinishRound:
     ld a, 1
     ld [wResult], a
     ld a, [wSprouted]
-    cp NUM_SEEDS
+    ld b, a
+    ld a, [wSeedCount]
+    cp b
     ld de, TextStageClear
     jr nz, .show
-    ld a, 5                 ; all six: 50 bonus points
+    ld a, 5                 ; all active plots: 50 bonus points
     call AddScore
     ld de, TextAllSprouted
     jr .show
@@ -1281,7 +1320,8 @@ FinishRound:
 BuildSeedTiles:
     ld hl, wSeeds
     ld de, wSeedTiles
-    ld b, NUM_SEEDS
+    ld a, [wSeedCount]
+    ld b, a
 .seed
     push bc
     ld c, [hl]              ; c = state
@@ -1371,7 +1411,12 @@ CopySeedTiles:
     ld [wBgDirty], a
     ld de, wSeedTiles
     ld hl, SCRN0 + SCRN_VY * NUMBER_ROW + SEED_COL0
-    ld b, NUM_SEEDS
+    ld a, [wSeedCount]
+    ld b, a
+    ld c, SEED_COL_STEP
+    cp NUM_SEEDS
+    jr z, .seed
+    inc c                   ; First Rain uses every fourth tile column.
 .seed
     push hl
     ld a, [de]              ; tens digit
@@ -1400,7 +1445,7 @@ CopySeedTiles:
     ld [hl], a
     pop hl
     ld a, l
-    add a, SEED_COL_STEP    ; next seed's column
+    add a, c                ; next seed's column
     ld l, a
     jr nc, .c3
     inc h
