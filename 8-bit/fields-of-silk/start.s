@@ -112,6 +112,9 @@ _render:
     lda #0
     sta $2005
     sta $2005
+    ; Palette writes leave the temporary address on nametable 3.
+    lda #$80
+    sta $2000
     rts
 
  ; Mark dry tiles reachable from the weevil. The corn border bounds the search.

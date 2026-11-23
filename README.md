@@ -7,7 +7,7 @@ They follow Kip, a popcorn kernel, from seed to POP. The games tell one loose, c
 |---|---|---|---|
 | Pocket | *Kernel Drop*: water the seeds just right | arcade / timing | **done** (Story, Endless, Lab; gentler First Rain stage) |
 | Pocket Color | [*Seed Room*](pocket-color/seed-room/DESIGN.md) (working title) | one-screen planting puzzle | Alpha 1 |
-| 8-Bit | [*Fields of Silk*](8-bit/fields-of-silk/DESIGN.md) | field restoration / territory capture | NES Alpha 1 |
+| 8-Bit | [*Fields of Silk*](8-bit/fields-of-silk/DESIGN.md) | field restoration / territory capture | NES Alpha 2 |
 | 16-Bit GEN | *Hull Breach* | shoot-'em-up | planned |
 | 16-Bit | *Kettle Pop* (finale) | Mode 7 flyer / 2.5D showcase | planned |
 | Pocket 32 (bonus) | caramel-corn sequel | TBD | idea |

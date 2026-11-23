@@ -1,6 +1,6 @@
 # Fields of Silk
 
-The 8-Bit (NES) Alpha 1 remakes the earlier Pocket Color prototype as an original NROM cartridge. The prototype remains in repository history.
+The 8-Bit (NES) Alpha 2 remakes the earlier Pocket Color prototype as an original NROM cartridge. The prototype remains in repository history.
 
 Kip restores one open 28 × 24 tile cornfield. Move with the D-pad, press A on green ground to anchor silk, and reconnect to green ground to grow an enclosed patch. Hold B to backtrack along the silk. Select changes the soil contrast. Start pauses or retries after the field is cleared or all three chances are lost.
 

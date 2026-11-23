@@ -253,7 +253,7 @@ int main(void) {
     addr(0x3f00);
     for (i = 0; i < sizeof(palette); ++i) REG(0x2007) = palette[i];
     addr(0x2022); text("FIELD");
-    addr(0x2362); text("ALPHA 1");
+    addr(0x2362); text("ALPHA 2");
     resetField();
     for (i = 0; i < 64; ++i) OAM[i*4] = 0xff;
     for (i = 0; i < H; ++i) { prepareRow(); drawRow(); }
