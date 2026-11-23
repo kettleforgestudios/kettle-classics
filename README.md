@@ -1,7 +1,7 @@
 # Kettle Classics
 
 Original games by **Kettle Forge Studios**, one for each system Kernelcade supports.
-They follow Kip, a popcorn kernel, from seed to POP:
+They follow Kip, a popcorn kernel, from seed to POP. The games tell one loose, connected story in the order below. Each chapter has its own genre and should work on its own. Kip's growth, recurring characters or places, and the consequences of earlier chapters carry the story across systems. The series moves toward more complex consoles, giving later chapters room for broader mechanics and presentation.
 
 | System (Kernelcade label) | Game | Genre | Status |
 |---|---|---|---|
