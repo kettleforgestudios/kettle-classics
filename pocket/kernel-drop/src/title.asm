@@ -32,6 +32,10 @@ DrawTitleScreen:
     ld c, 2
     ld de, TextSeries
     call PrintAt
+    ld b, 6
+    ld c, 4
+    ld de, TextBuild
+    call PrintAt
     ld b, MENU_ROW
     ld c, MENU_COL + 2
     ld de, TextStory
@@ -247,3 +251,10 @@ TextNext:         db "NEXT: THE FIELD", $FF
 TextCodeLabel:    db "CHAPTER 2 CODE", $FF
 TextCode:         db "SILK-KIP-2", $FF      ; placeholder unlock code
 TextThanks:       db "THANKS FOR PLAYING", $FF
+
+; CI's build number matches the published ROM's filename.
+IF DEF(KERNEL_DROP_BUILD)
+TextBuild: db "BUILD {KERNEL_DROP_BUILD}", $FF
+ELSE
+TextBuild: db "LOCAL BUILD", $FF
+ENDC

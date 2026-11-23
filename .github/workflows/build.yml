@@ -38,7 +38,7 @@ jobs:
           make -C ~/rgbds -j"$(nproc)" rgbasm rgblink rgbfix Q=
 
       - name: Build Kernel Drop
-        run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/
+        run: make -C pocket/kernel-drop RGBDS=$HOME/rgbds/ KERNEL_DROP_BUILD="$GITHUB_RUN_NUMBER"
 
       - name: Check header (no Nintendo logo)
         run: |
