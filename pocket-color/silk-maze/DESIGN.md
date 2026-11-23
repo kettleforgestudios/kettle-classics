@@ -1,6 +1,6 @@
-# Silk Maze
+# Fields of Silk
 
-Status: prototype design for Pocket Color. Silk Maze follows Kernel Drop in Kip's seed-to-pop story.
+Status: prototype design for Pocket Color. Fields of Silk follows Kernel Drop in Kip's seed-to-pop story.
 
 ## First field
 
@@ -9,6 +9,10 @@ Kip restores a whole cornfield. Start on healthy corn at the field edge. Anchor 
 One weevil roams the dry soil. Telegraph its approach with a visible turn toward the strand and a ticking sound. If it cuts exposed silk, return Kip to the anchor, remove the unfinished strand, and lose one of three chances. Earlier growth stays. At zero chances the player can retry the field. At 100% restored, clear the field. Start without a timer.
 
 Prototype decisions to test: for a loop that divides an open patch, keep the side occupied by the weevil dry and restore the other side. If neither side has a weevil, restore the smaller patch. When Kip closes off the last dry space, the weevil retreats and the field can reach 100%. Make the chosen patch clear in play and revisit this rule if the final few tiles are frustrating.
+
+## Power-ups
+
+The first field uses movement, silk capture, reeling back, and the weevil on their own. Revisit optional power-ups after playtesting. A decoy that briefly draws the weevil away from the strand is one idea for later fields.
 
 ## Controls
 
