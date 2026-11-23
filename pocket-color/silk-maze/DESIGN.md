@@ -1,6 +1,6 @@
 # Fields of Silk
 
-Status: Alpha 1 playable prototype for Pocket Color. Fields of Silk follows Kernel Drop in Kip's seed-to-pop story.
+Status: Alpha 2 playable prototype for Pocket Color. Fields of Silk follows Kernel Drop in Kip's seed-to-pop story.
 
 ## First field
 
@@ -28,9 +28,9 @@ The first field uses movement, silk capture, reeling back, and the weevil on the
 
 Use a 160 × 144 gameplay view. Give restored corn, dry soil, and silk distinct colors and tile shapes. Give the weevil a long snout and distinct roaming, targeting, and biting poses. Animate growth across the captured patch while Kip and the weevil remain responsive. Show percent restored and three chance icons in the HUD. Keep the weevil's approach readable with sound off.
 
-## Alpha 1 playtest
+## Alpha playtest
 
-The ROM boots directly to the field. Press A on green ground to start a strand. Hold B to backtrack and Start to toggle pause, or press Start to retry after a loss or clear. The field grows in a row-by-row pass after capture. Alpha 1 uses simple warning tones and an 8 × 8 weevil sprite. Directional animation, stereo sound, Lab mode, and independent hardware verification remain planned.
+The ROM boots directly to the field. Press A on green ground to start a strand. Hold B to backtrack and Start to toggle pause, or press Start to retry after a loss or clear. The field grows in a row-by-row pass after capture. Alpha 2 adds separate soil, corn, silk, and HUD palettes, a connected silk strand, and a 16 × 8 weevil sprite. The game still uses simple warning tones. Directional animation, stereo sound, Lab mode, and independent hardware verification remain planned.
 
 Build with RGBDS 1.0.4: `make -C pocket-color/silk-maze`.
 

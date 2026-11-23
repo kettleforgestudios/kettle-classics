@@ -36,6 +36,9 @@ wHead: db
 wTail: db
 wScreen: db
 wProgress: db
+wRenderStart: db
+wRenderTiles: ds 32
+wRenderAttrs: ds 32
 
 SECTION "Game", ROM0
 Start:
@@ -65,7 +68,7 @@ Start:
     ld a, $80
     ldh [$FF68], a
     ld hl, Colors
-    ld b, 8
+    ld b, 32
 .bg
     ld a, [hli]
     ldh [$FF69], a
@@ -73,7 +76,7 @@ Start:
     jr nz, .bg
     ld a, $80
     ldh [$FF6A], a
-    ld b, 16
+    ld b, 24
 .obj
     ld a, [hli]
     ldh [$FF6B], a
@@ -134,10 +137,17 @@ Frame:
     call Player
     call Weevil
 .draw
+    call PrepareRows
     call NextBlank
     call DrawActors
-    call DrawRow
-    call DrawRow
+    ld a, [wPressed]
+    bit 6, a
+    jr z, .copyRows
+    call DrawPalette
+    jr .hud
+.copyRows
+    call DrawRows
+.hud
     call DrawHUD
     jr Frame
 
@@ -184,16 +194,14 @@ ScreenOff:
     ret
 
 NewField:
-    ld hl, $9800
-    ld bc, 1024
-    ld d, 0
-.clear
-    ld a, d
-    ld [hli], a
-    dec bc
-    ld a, b
-    or c
-    jr nz, .clear
+    ld a, 3
+    call FillMap
+    ld a, 1
+    ldh [$FF4F], a
+    ld a, 3
+    call FillMap
+    xor a
+    ldh [$FF4F], a
     ld hl, wField
 .field
     ld a, l
@@ -230,6 +238,7 @@ NewField:
     ld [wProgress], a
     ld [wContrast], a
     ld [wClock], a
+    call DrawPalette
     ld hl, $9A22
     ld de, AlphaLabel
     ld b, 7
@@ -239,13 +248,36 @@ NewField:
     ld [hli], a
     dec b
     jr nz, .label
-    ld c, 16
+    ld hl, $9801
+    ld de, FieldLabel
+    ld b, 5
+.fieldLabel
+    ld a, [de]
+    inc de
+    ld [hli], a
+    dec b
+    jr nz, .fieldLabel
+    ld c, 8
 .rows
     push bc
-    call DrawRow
+    call PrepareRows
+    call DrawRows
     pop bc
     dec c
     jr nz, .rows
+    ret
+
+FillMap:
+    ld hl, $9800
+    ld bc, 1024
+    ld d, a
+.clear
+    ld a, d
+    ld [hli], a
+    dec bc
+    ld a, b
+    or c
+    jr nz, .clear
     ret
 
 ; Keep motion at two pixels per frame. Grid decisions happen at tile centers.
@@ -594,22 +626,98 @@ Tone:
     ldh [$FF14], a
     ret
 
-; Two rows per VBlank leave time for sprites and HUD.
-DrawRow:
+; Prepare two field rows before VBlank. Only the short VRAM copy runs in VBlank.
+PrepareRows:
     ld a, [wRow]
-    ld c, a
-    inc a
-    and 15
-    ld [wRow], a
-    ld a, c
+    ld [wRenderStart], a
     swap a
     ld h, HIGH(wField)
     ld l, a
-    ld d, 0
-    ; Destination is map row (row+1) * 32, plus the two-column margin.
+    ld de, wRenderTiles
+    ld b, 32
+.next
+    ld a, [hl]
+    ld c, a
+    and a
+    jr z, .soil
+    cp SILK
+    jr nz, .store
+    push bc
+    push hl
+    call StrandTile
+    pop hl
+    pop bc
+    jr .store
+.soil
+    ; Most tiles are plain earth, with occasional cracks and small clods.
+    ld a, l
+    swap a
+    xor l
+    rrca
+    xor l
+    and 15
+    cp 2
+    ld a, SOIL
+    jr nc, .store
+    ld a, l
+    and 1
+    add 45
+.store
+    ld [de], a
+    push hl
+    ld hl, wRenderAttrs - wRenderTiles
+    add hl, de
+    ld [hl], c
+    pop hl
+    inc de
+    inc l
+    dec b
+    jr nz, .next
+    ld hl, wRow
+    ld a, [hl]
+    add 2
+    and 15
+    ld [hl], a
+    ret
+
+; Select a line tile with arms toward the anchor or neighboring silk.
+StrandTile:
+    ld b, l
+    ld c, 0
+    ld a, b
+    sub 16
+    call StrandNeighbor
+    ld a, b
+    inc a
+    call StrandNeighbor
+    ld a, b
+    add 16
+    call StrandNeighbor
+    ld a, b
+    dec a
+    call StrandNeighbor
     ld a, c
+    add 25
+    ret
+
+StrandNeighbor:
+    sla c
+    ld l, a
+    ld a, [hl]
+    cp SILK
+    jr z, .join
+    ld a, [wAnchor]
+    cp l
+    ret nz
+.join
+    inc c
+    ret
+
+DrawRows:
+    ld a, [wRenderStart]
     inc a
     ld e, a
+    ld d, 0
     REPT 5
         sla e
         rl d
@@ -619,13 +727,39 @@ DrawRow:
     ld d, a
     inc e
     inc e
+    push de
+    ld hl, wRenderTiles
+    call CopyRows
+    pop de
+    ld a, 1
+    ldh [$FF4F], a
+    ld hl, wRenderAttrs
+    call CopyRows
+    xor a
+    ldh [$FF4F], a
+    ret
+
+CopyRows:
     ld b, 16
-.tiles
+.first
     ld a, [hli]
     ld [de], a
     inc de
     dec b
-    jr nz, .tiles
+    jr nz, .first
+    ld a, e
+    add 16
+    ld e, a
+    jr nc, .secondRow
+    inc d
+.secondRow
+    ld b, 16
+.second
+    ld a, [hli]
+    ld [de], a
+    inc de
+    dec b
+    jr nz, .second
     ret
 
 DrawActors:
@@ -665,21 +799,28 @@ DrawActors:
     xor a
 .bug
     ld [$FE04], a
+    ld [$FE08], a
     ld a, c
     and 15
     add a
     add a
     add a
-    add 24
+    add 20
     ld [$FE05], a
+    add 8
+    ld [$FE09], a
     ld a, 5
     ld [$FE06], a
+    ld a, 24
+    ld [$FE0A], a
     ld a, [wLength]
     and a
-    jr z, .bugPalette
     ld a, 1
+    jr z, .bugPalette
+    inc a
 .bugPalette
     ld [$FE07], a
+    ld [$FE0B], a
     ret
 Offset:
     ld d, a
@@ -695,7 +836,7 @@ Offset:
     ld e, a
     ret
 
-DrawHUD:
+DrawPalette:
     ld a, [wContrast]
     and a
     ld a, $80
@@ -704,20 +845,26 @@ DrawHUD:
     jr z, .palette
     ld hl, Contrast
 .palette
-    ld b, 8
+    ld b, 32
 .pal
     ld a, [hli]
     ldh [$FF69], a
     dec b
     jr nz, .pal
+    ret
+
+DrawHUD:
     ld a, [wChance]
     ld b, a
-    ld hl, $9802
+    ld hl, $9810
     ld c, 3
 .hearts
     ld a, b
     and a
-    jr z, .heart
+    jr nz, .filled
+    ld a, 3
+    jr .heart
+.filled
     dec b
     ld a, 6
 .heart
@@ -739,11 +886,11 @@ DrawHUD:
     and a
     ld a, 22
     jr nz, .status
-    xor a
+    ld a, 3
 .status
-    ld [$9811], a
+    ld [$980D], a
     ld a, [wProgress]
-    ld hl, $9808
+    ld hl, $9807
     ld b, 8
     cp 100
     jr c, .tens
@@ -768,22 +915,31 @@ DrawHUD:
     ret
 
 Colors:
-    dw $1A56, $1548, $16CD, $73DF
-    dw $0000, $0AFE, $4818, $0046
-    dw $0000, $0AFE, $017C, $0046
-AlphaLabel:
-    db 19, 20, 22, 21, 19, 0, 9
+    dw $2639, $1D94, $1551, $10ED
+    dw $0D04, $11A8, $1E91, $233E
+    dw $2639, $1D94, $373D, $67DF
+    dw $0CC5, $21CD, $1EDD, $67DF
+    dw $0000, $233E, $11D6, $0C87
+    dw $0000, $3130, $20AA, $1065
+    dw $0000, $1918, $28ED, $1046
 Contrast:
-    dw $08A5, $0062, $2DE0, $7FFF
+    dw $08EC, $1DD7, $32DD, $0887
+    dw $08A2, $0DC6, $1F10, $237F
+    dw $08EC, $1DD7, $2B9F, $7FFF
+    dw $0CC5, $21CD, $1EDD, $67DF
+AlphaLabel:
+    db 19, 20, 22, 21, 19, 3, 10
+FieldLabel:
+    db 41, 42, 43, 20, 44
 
 Tiles:
-    DW `00000000,`00000100,`00000000,`01000000,`00000010,`00000000,`00010000,`00000000
-    DW `11111111,`12212211,`11222111,`11122111,`12212211,`11222111,`11122111,`11111111
+    DW `00000000,`00000000,`00000000,`00000000,`00000000,`00000000,`00000000,`00000000
+    DW `00010000,`00333000,`00232000,`20221020,`12221210,`01212200,`00121000,`00010000
     DW `30303030,`03030303,`30303030,`03030303,`30303030,`03030303,`30303030,`03030303
     DW `00000000,`00000000,`00000000,`00000000,`00000000,`00000000,`00000000,`00000000
-    DW `00011000,`00111100,`01111110,`01311310,`01311310,`01111110,`00111100,`00011000
-    DW `00300030,`00032300,`03322233,`00322230,`03322233,`00333330,`03030303,`00000000
-    DW `00033000,`00333300,`03333330,`03333330,`00333300,`00033000,`00000000,`00000000
+    DW `00333300,`03111130,`31211113,`31131313,`31131313,`32111123,`03222230,`00333300
+    DW `00000000,`00000030,`00000313,`00033123,`03330133,`33000333,`30000303,`00003003
+    DW `00000000,`00023300,`00233200,`02333200,`02332200,`00222000,`00000000,`00000000
     DW `00000000,`00000003,`00000033,`30000330,`33003300,`03333000,`00330000,`00000000
     DW `00000000,`00333000,`00303000,`00303000,`00303000,`00333000,`00000000,`00000000
     DW `00000000,`00030000,`00330000,`00030000,`00030000,`00333000,`00000000,`00000000
@@ -801,4 +957,27 @@ Tiles:
     DW `00000000,`00303000,`00303000,`00333000,`00303000,`00303000,`00000000,`00000000
     DW `00000000,`00330000,`00303000,`00330000,`00300000,`00300000,`00000000,`00000000
     DW `00000000,`00303000,`00303000,`00030000,`00303000,`00303000,`00000000,`00000000
+    DW `00333300,`03111130,`31222213,`31111113,`31222213,`03333330,`03030300,`00003030
+    DW `00000000,`00000000,`00000000,`00023000,`00033000,`00000000,`00000000,`00000000
+    DW `00000000,`00000000,`00000000,`23323000,`33233000,`00000000,`00000000,`00000000
+    DW `00000000,`00000000,`00000000,`00023000,`00033000,`00032000,`00023000,`00033000
+    DW `00000000,`00000000,`00000000,`23323000,`33233000,`00032000,`00023000,`00033000
+    DW `00000000,`00000000,`00000000,`00023323,`00033233,`00000000,`00000000,`00000000
+    DW `00000000,`00000000,`00000000,`23323323,`33233233,`00000000,`00000000,`00000000
+    DW `00000000,`00000000,`00000000,`00023323,`00033233,`00032000,`00023000,`00033000
+    DW `00000000,`00000000,`00000000,`23323323,`33233233,`00032000,`00023000,`00033000
+    DW `00023000,`00033000,`00032000,`00023000,`00033000,`00000000,`00000000,`00000000
+    DW `00023000,`00033000,`00032000,`23323000,`33233000,`00000000,`00000000,`00000000
+    DW `00023000,`00033000,`00032000,`00023000,`00033000,`00032000,`00023000,`00033000
+    DW `00023000,`00033000,`00032000,`23323000,`33233000,`00032000,`00023000,`00033000
+    DW `00023000,`00033000,`00032000,`00023323,`00033233,`00000000,`00000000,`00000000
+    DW `00023000,`00033000,`00032000,`23323323,`33233233,`00000000,`00000000,`00000000
+    DW `00023000,`00033000,`00032000,`00023323,`00033233,`00032000,`00023000,`00033000
+    DW `00023000,`00033000,`00032000,`23323323,`33233233,`00032000,`00023000,`00033000
+    DW `00000000,`00333000,`00300000,`00330000,`00300000,`00300000,`00000000,`00000000
+    DW `00000000,`00333000,`00030000,`00030000,`00030000,`00333000,`00000000,`00000000
+    DW `00000000,`00333000,`00300000,`00330000,`00300000,`00333000,`00000000,`00000000
+    DW `00000000,`00330000,`00303000,`00303000,`00303000,`00330000,`00000000,`00000000
+    DW `00000000,`00010000,`00021000,`00120000,`01011000,`00002100,`00000000,`00000000
+    DW `00000000,`00000000,`00100000,`00000000,`00000100,`00001100,`00000000,`00000000
 TilesEnd:
